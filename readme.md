@@ -5,7 +5,7 @@
 ### 一些特点
 
 - 无需配置数据库。如果只是想开个原版服/有一些开服经验，但不多/嫌配置数据库麻烦(比如我)，又觉得盗版服不安全，而且玩家数量不会很多，那么我认为这种无数据库式的外置登录验证服务器还是很香的。
-- [yggdrasil-mock](https://github.com/yushijinhun/yggdrasil-mock)测试结果：`73 passing (18s)  4 failing` 4 个失败的原因是，材质 url 提供的 hash 与测试程序计算得出的不符。(不是很明白测试端是怎么计算的, mojang 官方材质 url 也会这样。这一项主要影响)
+- [yggdrasil-mock](https://github.com/yushijinhun/yggdrasil-mock)测试结果：`73 passing (18s)  4 failing` 4 个失败的原因是，材质 url 提供的 hash 与测试程序计算得出的不符。(不是很明白测试端是怎么计算的, mojang 官方材质 url 也会这样。)
 - 前后端分离。在 yggdrasil API 之外，还提供了一套简单的 restful 的 API，借此可以深度修改网页端的用户界面，不会对服务器产生影响。(项目本身也有提供一个简陋的用户界面，具有基本的功能。不介意的话也能凑合用)
 - 兼容正版用户进入服务器。也就是只需要服务器配置了本验证服务器就行。不过这样也带来了许多兼容问题，诸如不可预测的皮肤不显示什么的，而且在 1.19 及更新的服务端，由于聊天签名机制的引入，会导致正版玩家无法验证聊天消息，从而被服务器踢出。(但是可以通过安装一个插件解决：[freedomchat](https://modrinth.com/plugin/freedomchat))
 
