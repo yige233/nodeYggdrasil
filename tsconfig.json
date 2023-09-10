@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "module": "es2022",
+    "target": "es2022",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "./build/",
+    "baseUrl": "./",
+    "paths": {
+      "libs": ["./libs/"],
+      "src": ["./src"]
+    },
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "removeComments": true,
+    "declaration": true,
+    "experimentalDecorators": true
+  }
+}

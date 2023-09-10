@@ -1,0 +1,46 @@
+.item-l1 > div:nth-child(2) > div {
+  text-indent: 2em;
+}
+.item-l2 > div:nth-child(2) > div {
+  text-indent: 4em;
+}
+.item-l3 > div:nth-child(2) > div {
+  text-indent: 6em;
+}
+
+.item-l1 {
+  background-color: var(--accent-bg);
+  border: dashed 2px;
+  padding: 5px;
+  margin: 5px;
+  position: relative;
+  min-width: 500px;
+}
+
+.item-l1 > div:nth-child(1) > span:first-child {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 120%;
+}
+
+textarea {
+  font-family: Consolas, Microsoft Yahei;
+  max-width: 100%;
+  min-width: 100%;
+  width: 100%;
+  min-height: 300px;
+  height: 300px;
+}
+
+button.danger {
+  background-color: rgb(171, 11, 11);
+}
+
+.info::before{
+  content: "ℹ️";
+}
+.info {
+  color: darkgreen;
+  font-size: 14px;
+}

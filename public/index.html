@@ -1,0 +1,214 @@
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <title>NameLess</title>
+    <link rel="stylesheet" href="./css/simple.min.css" />
+    <link rel="stylesheet" href="./css/main.css" />
+  </head>
+  <body>
+    <div class="app"></div>
+    <template id="t-user">
+      <div class="item-l1">
+        <div><span>编辑用户信息。不需要编辑的项目留空即可</span></div>
+        <div>
+          <div><span>用户身份：</span><strong></strong></div>
+          <div><span>用户注册时间：</span><strong></strong></div>
+          <div><span>用户注册IP：</span><strong></strong></div>
+          <div><span>当前用户名：</span><strong></strong></div>
+          <div><span>当前用户昵称：</span><strong></strong></div>
+          <div><span>用户的邀请码：</span><strong></strong><span class="info">可以提供给想要注册账号的好友。(前提是服务器允许使用用户的邀请码注册)</span></div>
+          <div><span>新用户名：</span><input type="email" /><span class="info">使用邮箱格式，不长于60个字符。</span></div>
+          <div><span>新用户昵称：</span><input type="text" /><span class="info">不长于30个字符。</span></div>
+          <div><span>新密码：</span><input type="password" /><span class="info">至少8位。</span></div>
+          <div><span>重复新密码：</span><input type="password" /></div>
+          <div><button>提交</button></div>
+          <div><button>注销当前的登录</button></div>
+          <div><button class="danger">删除账户</button><span class="info">永久删除账户，包括该账户拥有的角色。</span></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-profile-info">
+      <div class="item-l1">
+        <div><span>编辑角色信息。不需要编辑的项目留空即可</span></div>
+        <div>
+          <div><span>角色名：</span><strong></strong></div>
+          <div><span>角色皮肤：</span><strong></strong></div>
+          <div><span>角色披风：</span><strong></strong></div>
+          <div>
+            <span>新角色名：</span><input type="text" maxlength="30" /><span class="info"
+              >即你的新游戏内ID。由于本角色的UUID不变，所以游戏不会将其作为新玩家对待。注意：该操作会使所有绑定到该角色的会话的登录状态失效；如果你只有一个角色，那么当前的登录会话是绑定至该角色的。</span
+            >
+          </div>
+          <div class="item-l2">
+            <div><span>材质：</span></div>
+            <div>
+              <div>
+                <span>导入、修改材质的选项：</span>
+                <select>
+                  <option value="none" selected>不修改材质</option>
+                  <option value="capeVisible">切换披风的可见性</option>
+                  <option value="mojang">从官方角色获取皮肤和披风</option>
+                  <option value="littleskin">从littleSkin皮肤站获取材质</option>
+                  <option value="delete">删除材质</option></select
+                ><span class="info">选择此项，可以切换披风的可见性、从mojang官方或者littleSkin皮肤站导入皮肤，或是删除皮肤或披风。下方“使用的参数”一项，根据这里的选择，只填写对应的项就好。</span>
+              </div>
+              <div class="item-l3">
+                <div><span>使用的参数：</span></div>
+                <div>
+                  <div><span>使披风可见：</span><input type="checkbox" checked /><span class="info">不会导致服务器上的披风材质被删除。</span></div>
+                  <div><span>正版角色名称：</span><input type="text" /><span class="info">可以完全复制一位正版用户的角色形象，包括皮肤和披风。</span></div>
+                  <div>
+                    <span>littleSkin皮肤站的材质id：</span><input type="number" step="1" /><span class="info"
+                      >“材质id”指的是littleSkin皮肤站的材质页面url结尾的那串数字。例如：https://littleskin.cn/skinlib/show/2713，则其材质id为2713。需要材质公开可见；服务器会检查其材质类型。</span
+                    >
+                  </div>
+                  <div>
+                    <span>删除哪些材质：</span>
+                    <select>
+                      <option value="skin">皮肤</option>
+                      <option value="cape">披风</option>
+                      <option value="all">全部</option></select
+                    ><span class="info">删除指定的材质。</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div><button>提交</button></div>
+          <div class="item-l2">
+            <div><span>上传材质</span><span class="info">不同于上面的导入材质，这里提供了从本机上传材质的入口。</span></div>
+            <div>
+              <div>
+                <span>材质类型：</span>
+                <select>
+                  <option value="default">皮肤/默认模型(steve)</option>
+                  <option value="slim">皮肤/细手臂模型(alex)</option>
+                  <option value="cape">披风</option>
+                </select>
+              </div>
+              <div><span>选择文件：</span><input type="file" accept="image/png" /><span class="info">仅可选择png格式的文件，并且尺寸(单位：像素)要求在64*32、64*64，或者22*17(仅披风)。</span></div>
+            </div>
+            <div><button>提交</button></div>
+            <div><button class="danger">删除角色</button><span class="info">永久删除角色，包括设置的皮肤披风。删除后，该角色就可以被其他人注册了。</span></div>
+          </div>
+        </div>
+      </div>
+    </template>
+    <template id="t-new-profile">
+      <div class="item-l1">
+        <div><span>新建角色</span></div>
+        <div>
+          <div>
+            <span>角色名称：</span><input type="text" maxlength="30" /><span class="info"
+              >也就是游戏内ID。最长30位，可以使用汉字，但如果验证服务端设置了严格的名称检查，汉字名称可能会无法启动游戏。</span
+            >
+          </div>
+          <div>
+            <span>是否兼容离线验证：</span><input type="checkbox" checked /><span class="info"
+              >勾选后，创建的角色的UUID将会采用和离线验证相同的计算方式。如果一个离线验证的服务器计划迁移到外置验证，那么勾选本项，可以使游戏内角色数据仍然保留(前提是ID一致)。</span
+            >
+          </div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-login">
+      <div class="item-l1">
+        <div><span>用户登录</span></div>
+        <div>
+          <div><span>用户名：</span><input type="email" /><span class="info">也可以使用角色名称登录。</span></div>
+          <div><span>密码：</span><input type="password" /></div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-reset-pass">
+      <div class="item-l1">
+        <div><span>重置密码</span></div>
+        <div>
+          <div><span>用户账号：</span><input type="email" /><span class="info">邮箱格式的账号，或者是用户的uuid。</span></div>
+          <div><span>救援代码：</span><input type="email" /><span class="info">要找回的账户所生成的救援代码。如果该账户此前从未生成过救援代码，则无法找回密码。</span></div>
+          <div><span>新密码：</span><input type="password" /></div>
+          <div><span>再次输入密码：</span><input type="password" /></div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-get-rescue-code">
+      <div class="item-l1">
+        <div>
+          <span>获取本账户的救援代码</span>
+          <span class="info">如果日后忘记密码，可以使用这里生成的救援代码重置密码，若账号从未生成过救援代码，则无法通过网页自助找回密码。救援代码只会显示一次，应妥善保存。</span>
+        </div>
+        <div>
+          <div><button>获取救援代码</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-new-user">
+      <div class="item-l1">
+        <div><span>用户注册</span></div>
+        <div>
+          <div><span>用户名：</span><input type="email" maxlength="60" /><span class="info">邮箱格式。长度小于60个字符。</span></div>
+          <div><span>用户昵称：</span><input type="text" maxlength="30" /><span class="info">长度小于30个字符。</span></div>
+          <div><span>密码：</span><input type="password" minlength="8" /><span class="info">长度至少8个字符。</span></div>
+          <div><span>重复密码：</span><input type="password" minlength="8" /></div>
+          <div><span>邀请码：</span><input type="text" /><span class="info">请向已经拥有账号的好友索要，或者询问管理员。</span></div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-admin-ban-user">
+      <div class="item-l1">
+        <div>
+          <span>管理员：封禁用户</span>
+          <span class="info">多次封禁时长不叠加。将封禁时长设为0，即可视为解封用户。封禁会强制注销该用户的所有会话。被封禁期间，无法登录、无法删除用户，也不能使用该用户的邀请码注册新用户。</span>
+        </div>
+        <div>
+          <div><span>用户UUID、角色UUID或角色名称：</span><input type="text" minlength="32" maxlength="32" /></div>
+          <div><span>封禁时长(min)：</span><input type="number" /></div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-admin-new-user">
+      <div class="item-l1">
+        <div>
+          <span>管理员：批量用户注册</span>
+          <span class="info">用于从服务器迁移用户。用户名后缀：由于用户名必须是邮箱格式，因此需要为批量创建的用户添加符合邮箱格式的后缀（username@example.com）</span>
+        </div>
+        <div>
+          <div><span>选择服务器产生的usercache.json：</span><input type="file" accept="application/json" /></div>
+          <div><span>用户名后缀：</span><input type="text" /><span class="info">如：@example.com。需要提供此后缀，使批量创建的用户账户名符合邮箱格式。</span></div>
+          <div><span>邀请码：</span><input type="text" /><span class="info">同单个用户注册时需要的邀请码。</span></div>
+          <div><button>提交</button></div>
+        </div>
+      </div>
+    </template>
+    <template id="t-admin-settings">
+      <div class="item-l1">
+        <div>
+          <span>管理员：修改服务器设置</span
+          ><span class="info"
+            >除privateKeyPath、publicKeyPath、server.host、server.root和server.port不可在此修改外，其余项均可修改。不当的修改可能会造成验证服务器出现严重问题。只能修改已存在的项，不能新增项也不能删除项。</span
+          >
+        </div>
+        <div><textarea></textarea></div>
+        <div><button>提交</button></div>
+      </div>
+    </template>
+    <template id="t-header">
+      <div class="item-l1">
+        <div><span>这是一个外置登录系统</span></div>
+        <div>
+          <p>
+            外置登录认证服务器地址：<span id="yggdrasil-addr"></span><br />
+            <a id="yggdrasil-protocol">也可以拖动此链接到支持的启动器。</a>
+          </p>
+          <p class="info"></p>
+        </div>
+      </div>
+    </template>
+  </body>
+  <script src="./js/main.js" type="module"></script>
+</html>

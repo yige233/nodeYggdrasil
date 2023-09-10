@@ -1,0 +1,26 @@
+{
+  "name": "node-yggdrasil-server",
+  "version": "1.0.0",
+  "description": "基于nodejs的Yggdrasil服务端实现",
+  "main": "./build/index.js",
+  "scripts": {
+    "build": "npx tsc",
+    "install": "npm install --omit=dev",
+    "start": "node ./build/index.js",
+    "init": "node ./build/init.js"
+  },
+  "author": "yige233",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/multipart": "^7.7.1",
+    "@fastify/static": "^6.10.2",
+    "fastify": "^4.19.2",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pngjs": "^6.0.1",
+    "typescript": "^5.1.6",
+    "typescript-json-schema": "^0.59.0"
+  }
+}
