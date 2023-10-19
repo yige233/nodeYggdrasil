@@ -5,7 +5,6 @@
   "main": "./build/index.js",
   "scripts": {
     "build": "npx tsc",
-    "install": "npm install --omit=dev",
     "start": "node ./build/index.js",
     "init": "node ./build/init.js"
   },
