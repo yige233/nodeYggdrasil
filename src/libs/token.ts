@@ -144,7 +144,7 @@ export default class Token {
   }
   /**导出符合 yggdrasil API 格式的单个角色信息 */
   get yggdrasilProfile(): PublicProfileData {
-    if (!this.profile) return null;
+    if (!this.profile || !PROFILEMAP.has(this.profile)) return null;
     return PROFILEMAP.get(this.profile).getYggdrasilData();
   }
 }
