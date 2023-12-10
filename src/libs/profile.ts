@@ -68,7 +68,7 @@ export default class Profile implements ProfileData {
     const map: Map<any, Profile> = Utils.arrMap();
     for (const pid in PROFILES.content) {
       const profile = PROFILES.content[pid];
-      map.set([profile.name, profile.id, profile.name.toLowerCase()], new Profile(profile));
+      map.set([profile.name, profile.id], new Profile(profile));
     }
     return map;
   }
@@ -78,7 +78,6 @@ export default class Profile implements ProfileData {
    * @returns {true}
    */
   static nameCheck(name: string): true {
-    name = name.toLowerCase();
     if (name.length >= 30) {
       //该角色名称太长
       throw new ErrorResponse("BadOperation", `The provided profile name is too loooooong.`);

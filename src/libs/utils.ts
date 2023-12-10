@@ -65,28 +65,22 @@ export default class Utils {
       constructor() {
         super();
       }
-      get(key: string): any {
+      operate(method: "get" | "has" | "delete", key: string): any {
         for (let keyarr of this.keys()) {
-          if (keyarr.includes(key)) {
-            return super.get(keyarr);
+          if (keyarr.some((i: string) => i.toLowerCase() === key.toLowerCase())) {
+            return super[method](keyarr);
           }
         }
+        return false;
+      }
+      get(key: string): any {
+        return this.operate("get", key) || undefined;
       }
       has(key: string): boolean {
-        for (let keyarr of this.keys()) {
-          if (keyarr.includes(key)) {
-            return super.has(keyarr);
-          }
-        }
-        return false;
+        return this.operate("has", key);
       }
       delete(key: string): boolean {
-        for (let keyarr of this.keys()) {
-          if (keyarr.includes(key)) {
-            return super.delete(keyarr);
-          }
-        }
-        return false;
+        return this.operate("delete", key);
       }
     })();
   }

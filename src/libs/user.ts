@@ -45,7 +45,6 @@ export default class User implements UserData {
    */
   static authenticate(username: string, password: string): User {
     let user: User;
-    username = username.toLowerCase();
     if (USERSMAP.has(username)) {
       //用户存在，使用用户名登录
       user = USERSMAP.get(username);
@@ -76,7 +75,6 @@ export default class User implements UserData {
    */
   static userInfoCheck(username?: string, password?: string, nickName?: string, compareTo?: User): true {
     if (username) {
-      username = username.toLowerCase();
       if (USERSMAP.has(username)) {
         //用户名已被占用
         throw new ErrorResponse("ForbiddenOperation", `Username is not avaliable: ${username}`);
@@ -125,11 +123,10 @@ export default class User implements UserData {
     if (!username || !password) {
       throw new ErrorResponse("BadOperation", "Username and pasowrd is both required.");
     }
-    const lowerUsername = username.toLowerCase(); //将用户名改为全小写，忽略大小写
-    User.userInfoCheck(lowerUsername, password, nickName);
+    User.userInfoCheck(username, password, nickName);
     const rawUsr: Partial<UserData> = {
-      username: lowerUsername,
-      nickName: nickName ? nickName : lowerUsername,
+      username: username,
+      nickName: nickName ? nickName : username,
       profiles: [],
       regIP: ip,
       extend: { source: null, inviteCode: null },
@@ -188,7 +185,7 @@ export default class User implements UserData {
     const map: Map<any, User> = Utils.arrMap();
     for (const uuid in USERS.content) {
       const user = USERS.content[uuid];
-      map.set([user.username.toLowerCase(), user.id, ...user.profiles], new User(user));
+      map.set([user.username, user.id, ...user.profiles], new User(user));
     }
     return map;
   }
@@ -199,7 +196,6 @@ export default class User implements UserData {
    * @returns {boolean}
    */
   static async ban(target: string, duration: number = 60): Promise<SuccessResponse<PublicUserData>> {
-    target = target.toLowerCase();
     if (!USERSMAP.has(target) || !PROFILEMAP.has(target)) {
       //该用户不存在
       throw new ErrorResponse("BadOperation", `Invalid user or profile.`);
@@ -220,7 +216,6 @@ export default class User implements UserData {
   }
 
   static async resetPass(userId: string, rescueCode: string, newPass: string) {
-    userId = userId.toLowerCase();
     if (!USERSMAP.has(userId)) {
       //该用户不存在
       throw new ErrorResponse("BadOperation", `Invalid user.`);
