@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
-import Utils, { CONFIG, ErrorResponse, TEXTURES } from "./utils.js";
-import { uuid } from "./interfaces.js";
 import { PNG } from "pngjs";
+import Utils, { ErrorResponse, JSONFile } from "./utils.js";
+import { uuid } from "./interfaces.js";
+import { CONFIG, TEXTURES } from "../global.js";
 
 function readPNGMeta(imageData: Buffer): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -33,45 +34,46 @@ export default class Textures {
    * @param profileId 角色id
    */
   static async remove(textureHash: uuid, profileId: uuid) {
-    if (!TEXTURES.content[textureHash]) {
+    if (!TEXTURES[textureHash]) {
       //目录中不存在该材质
       return undefined;
     }
-    TEXTURES.content[textureHash].splice(
-      TEXTURES.content[textureHash].findIndex((i) => i == profileId),
+    TEXTURES[textureHash].splice(
+      TEXTURES[textureHash].findIndex((i) => i == profileId),
       1
     );
-    if (TEXTURES.content[textureHash].length == 0) {
+    if (TEXTURES[textureHash].length == 0) {
       //该材质对应的角色列表长度为0，说明该材质已经无人使用了
-      delete TEXTURES.content[textureHash];
+      delete TEXTURES[textureHash];
       await fs.unlink(`./data/textures/${textureHash}.png`).catch(() => undefined);
     }
-    await TEXTURES.save();
+    await JSONFile.save(TEXTURES);
   }
   /**
    * 添加一个材质，并向它的角色列表中添加角色id
-   * @param textureHash 材质Buffer
+   * @param texture 材质Buffer
    * @param profileId 角色id
+   * @param sha256 sha256摘要
    */
   static async add(texture: Buffer, profileId: uuid, sha256?: string) {
     const hash = sha256 ?? Utils.sha256(texture);
-    if (TEXTURES.content[hash]) {
+    if (TEXTURES[hash]) {
       //该材质已经存在，直接向它的列表中添加角色就行
-      TEXTURES.content[hash].push(profileId);
+      TEXTURES[hash].push(profileId);
     } else {
       //该材质不存在，为其创建角色列表，并保存该材质
-      TEXTURES.content[hash] = [profileId];
+      TEXTURES[hash] = [profileId];
       await fs.writeFile(`./data/textures/${hash}.png`, texture);
     }
-    await TEXTURES.save();
+    await JSONFile.save(TEXTURES);
   }
   /**
    * 对上传的材质文件进行处理
    * @param imageData 图片buffer数据
    * @returns {Buffer}
    */
-  static async check(imageData: Buffer, type: string): Promise<Buffer> {
-    if (CONFIG.content.user.disableUploadTexture) {
+  static async check(imageData: Buffer, type: "skin" | "cape"): Promise<Buffer> {
+    if (CONFIG.user.disableUploadTexture) {
       throw new ErrorResponse("ForbiddenOperation", "The server has disabled uploading textures online.");
     }
     try {

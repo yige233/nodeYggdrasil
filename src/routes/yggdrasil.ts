@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
+import crypto, { KeyObject } from "crypto";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import mutipart, { MultipartFile } from "@fastify/multipart";
+import multipart, { MultipartFile } from "@fastify/multipart";
 import {
   uuid,
   RequestAuth,
@@ -16,28 +17,32 @@ import {
   RoutePackConfig,
 } from "../libs/interfaces.js";
 import schemas, { Packer } from "../libs/schemas.js";
-import Utils, { PROFILEMAP, CONFIG, PUBLICKEY, ErrorResponse, SuccessResponse } from "../libs/utils.js";
+import Utils, { ErrorResponse, SuccessResponse } from "../libs/utils.js";
 import Session from "../libs/session.js";
 import Token from "../libs/token.js";
 import User from "../libs/user.js";
 import Textures from "../libs/textures.js";
+import { PROFILEMAP, USERSMAP, CONFIG, PUBLICKEY, TOKENSMAP, PRIVATEKEY } from "../global.js";
+import Profile from "src/libs/profile.js";
 
 /** /authserver/ 开头的部分API */
 export class AuthserverRoute {
   /** 用户认证 */
   static authenticate(request: FastifyRequest<{ Body: RequestAuth }>): SuccessResponse<ResponseAuth> {
     const { username = null, password = null, clientToken = undefined, requestUser = false }: RequestAuth = request.body;
+    request.rateLim(username || "");
     const result = User.authenticate(username, password);
-    let profile: uuid = null;
+    let profile: Profile;
     if (result.tokens.size >= 10) {
       //最多10个登录会话，若超出则删除最早的那个
       result.tokens.delete([...result.tokens][0]);
     }
     if (PROFILEMAP.has(username)) {
       //使用角色名称登录成功，令牌绑定至该角色
-      profile = PROFILEMAP.get(username).id;
+      profile = PROFILEMAP.get(username);
     }
-    const token = new Token(clientToken ? clientToken : Utils.uuid(), result.id, profile);
+    request.log.login(`用户 ${result.username} (内部ID: ${result.id} ) 登录成功${profile ? `，登录令牌绑定至 ${profile.name}` : ""}。登录IP地址: ${request.getIP()}`);
+    const token = new Token(clientToken ? clientToken : Utils.uuid(), result.id, profile?.id);
     const responseData: ResponseAuth = {
       accessToken: token.accessToken,
       clientToken: token.clientToken,
@@ -77,10 +82,9 @@ export class AuthserverRoute {
   /** 注销所有令牌 */
   static signout(request: FastifyRequest<{ Body: RequestSignout }>): SuccessResponse<undefined> {
     const { username = null, password = null }: RequestSignout = request.body;
-    const result = User.authenticate(username, password);
-    for (let token of result.tokens) {
-      Token.invalidate(token);
-    }
+    request.rateLim(username || "");
+    const user = User.authenticate(username, password);
+    user.signout();
     return new SuccessResponse(undefined, 204);
   }
 }
@@ -137,9 +141,10 @@ export class ApiRoute {
     const { file, mimetype } = request.body.file;
     const model = request.body.model == "slim" ? "slim" : "default";
     const profile = PROFILEMAP.get(uuid);
+    console.log(USERSMAP.get(profile.owner));
     request.rateLim(profile.owner);
     if (mimetype != "image/png") {
-      throw new ErrorResponse("UnsupportedMediaType", `Incorrect mime type: ${mimetype}`);
+      throw new ErrorResponse("UnsupportedMediaType", `Incorrect Media type: ${mimetype}`);
     }
     if (file.truncated) {
       throw new ErrorResponse("UnprocessableEntity", `Image size too large.`);
@@ -156,7 +161,8 @@ export class ApiRoute {
   /** 删除材质 */
   static async delProfile(request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" } }>): Promise<SuccessResponse<undefined>> {
     const { uuid, textureType } = request.params;
-    await PROFILEMAP.get(uuid).setTexture("delete", {
+    const profile = PROFILEMAP.get(uuid);
+    await profile.setTexture("delete", {
       type: textureType == "skin" ? "skin" : "cape",
     });
     return new SuccessResponse(undefined, 204);
@@ -165,6 +171,7 @@ export class ApiRoute {
     const { uuid, textureType } = request.params;
     try {
       request.permCheck(undefined, uuid);
+      USERSMAP.get(uuid).checkReadonly();
       if (!["skin", "cape"].includes(textureType)) {
         //提供的材质类型无效
         throw new ErrorResponse("NotFound", "Path Not Found.");
@@ -172,7 +179,7 @@ export class ApiRoute {
     } catch (err) {
       if (err instanceof ErrorResponse) {
         if (err.error == "ForbiddenOperation") {
-          throw new ErrorResponse("Unauthorized", "Token does not exist, or is invalid.");
+          throw new ErrorResponse("Unauthorized", "Token does not exist, or invalid.");
         }
         throw err;
       }
@@ -188,20 +195,21 @@ export class Root {
   static get meta(): SuccessResponse<ResponseMeta> {
     const responseData: ResponseMeta = {
       meta: {
-        serverName: CONFIG.content.server.name,
+        serverName: CONFIG.server.name,
         implementationName: "NodeYggdrasilServer",
         implementationVersion: 1,
         links: {
-          homepage: CONFIG.content.server.homepage,
-          register: CONFIG.content.server.register,
+          homepage: CONFIG.server.homepage,
+          register: CONFIG.server.register,
         },
-        "feature.non_email_login": CONFIG.content.features.non_email_login,
-        "feature.enable_mojang_anti_features": CONFIG.content.features.enable_mojang_anti_features,
-        "feature.username_check": CONFIG.content.features.username_check,
-        "feature.no_mojang_namespace": CONFIG.content.features.no_mojang_namespace,
+        "feature.non_email_login": CONFIG.features.non_email_login,
+        "feature.enable_mojang_anti_features": CONFIG.features.enable_mojang_anti_features,
+        "feature.username_check": CONFIG.features.username_check,
+        "feature.enable_profile_key": CONFIG.features.enable_profile_key,
+        "feature.no_mojang_namespace": CONFIG.features.no_mojang_namespace,
       },
-      skinDomains: CONFIG.content.skinDomains,
-      signaturePublickey: PUBLICKEY.toString("utf8"),
+      skinDomains: CONFIG.skinDomains,
+      signaturePublickey: Utils.keyRepack(PUBLICKEY),
     };
     return new SuccessResponse(responseData);
   }
@@ -229,11 +237,10 @@ const authserver: RoutePackConfig = {
       config: {
         post: {
           handler: AuthserverRoute.authenticate,
-          rateLim: (request: FastifyRequest<{ Body: RequestAuth }>) => request.body.username || "",
           schema: {
             summary: "使用密码进行身份验证，并分配一个新的令牌",
             description: "如果验证服务端允许，也可以使用角色名登录，获得的令牌自动绑定至登录使用的角色。\n以提供的用户名为key进行速率限制。",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             body: schemas.RequestAuth,
             response: { 200: schemas.ResponseAuth },
           },
@@ -245,7 +252,7 @@ const authserver: RoutePackConfig = {
       config: {
         post: {
           handler: AuthserverRoute.refresh,
-          schema: { summary: "吊销原令牌，并颁发一个新的令牌", tags: ["ydddrasil"], body: schemas.RequestRefresh, response: { 200: schemas.ResponseRefresh } },
+          schema: { summary: "吊销原令牌，并颁发一个新的令牌", tags: ["yggdrasil"], body: schemas.RequestRefresh, response: { 200: schemas.ResponseRefresh } },
         },
       },
     },
@@ -254,7 +261,7 @@ const authserver: RoutePackConfig = {
       config: {
         post: {
           handler: AuthserverRoute.validate,
-          schema: { summary: "检验令牌是否有效", tags: ["ydddrasil"], body: schemas.RequestValidate, response: { 204: schemas.Response204.ok } },
+          schema: { summary: "检验令牌是否有效", tags: ["yggdrasil"], body: schemas.RequestValidate, response: { 204: schemas.Response204.ok } },
         },
       },
     },
@@ -263,7 +270,7 @@ const authserver: RoutePackConfig = {
       config: {
         post: {
           handler: AuthserverRoute.invalidate,
-          schema: { summary: "吊销给定的令牌", tags: ["ydddrasil"], body: schemas.RequestValidate, response: { 204: schemas.Response204.ok } },
+          schema: { summary: "吊销给定的令牌", tags: ["yggdrasil"], body: schemas.RequestValidate, response: { 204: schemas.Response204.ok } },
         },
       },
     },
@@ -272,11 +279,10 @@ const authserver: RoutePackConfig = {
       config: {
         post: {
           handler: AuthserverRoute.signout,
-          rateLim: (request: FastifyRequest<{ Body: RequestSignout }>) => request.body.username || "",
           schema: {
             summary: "吊销用户的所有令牌",
             description: "可以使用角色名作为用户名(需要服务器允许)\n以提供的用户名为key进行速率限制。",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             body: schemas.RequestSignout,
             response: { 204: schemas.Response204.ok },
           },
@@ -292,7 +298,7 @@ const sessionserver: RoutePackConfig = {
       config: {
         post: {
           handler: SessionserverRoute.join,
-          schema: { summary: "客户端进入服务器，记录服务端发送给客户端的 serverId，以备服务端检查", tags: ["ydddrasil"], body: schemas.RequestJoinServer, response: { 204: schemas.Response204.ok } },
+          schema: { summary: "客户端进入服务器，记录服务端发送给客户端的 serverId，以备服务端检查", tags: ["yggdrasil"], body: schemas.RequestJoinServer, response: { 204: schemas.Response204.ok } },
         },
       },
     },
@@ -301,10 +307,10 @@ const sessionserver: RoutePackConfig = {
       config: {
         get: {
           handler: SessionserverRoute.hasJoined,
-          defaultResponse: false,
+          customResponse: true,
           schema: {
             summary: "服务端验证客户端：检查客户端会话的有效性",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             querystring: schemas.RequestHasJoined,
             response: { 200: schemas.PublicProfileData, 204: schemas.Response204.bad },
           },
@@ -318,7 +324,7 @@ const sessionserver: RoutePackConfig = {
           handler: SessionserverRoute.profile,
           schema: {
             summary: "查询指定角色的完整信息（包含角色属性）",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             params: Packer.object()({ uuid: Packer.string("角色的uuid") }, "uuid"),
             querystring: Packer.object()({ unsigned: schemas.sharedVars.unsigned }),
             response: { 200: schemas.PublicProfileData },
@@ -338,35 +344,36 @@ const api: RoutePackConfig = {
           schema: {
             summary: "设置指定角色的材质",
             description: "使用formdata上传文件，提供两个字段：'model'：只能是'slim'或'default'，指示材质应用的模型；\n'file'：材质文件二进制数据。\n文件大小上限是5KB。",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             headers: Packer.object()({ authorization: schemas.sharedVars.authorization, "content-type": schemas.sharedVars.contentTypeFd }, "authorization", "content-type"),
             params: Packer.object()({ uuid: schemas.sharedVars.profileUuid, textureType: schemas.sharedVars.textureType }, "uuid", "textureType"),
             body: Packer.object()({ model: { multipart: true }, file: { multipart: true } }),
             consumes: ["multipart/form-data"],
             response: { 204: schemas.Response204.ok },
           },
+          before: function (instance: FastifyInstance) {
+            instance.addHook("onRequest", instance.allowedContentType("multipart/form-data"));
+            instance.addHook("onRequest", instance.packHandle(ApiRoute.accessibilityCheck));
+            instance.register(multipart, {
+              attachFieldsToBody: true,
+              limits: {
+                fileSize: 5120,
+                files: 1,
+                fields: 1,
+              },
+            });
+          },
         },
         delete: {
           handler: ApiRoute.delProfile,
           schema: {
             summary: "清除指定角色的材质",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             headers: Packer.object()({ authorization: schemas.sharedVars.authorization }, "authorization"),
             params: Packer.object()({ uuid: schemas.sharedVars.profileUuid, textureType: schemas.sharedVars.textureType }, "uuid", "textureType"),
             response: { 204: schemas.Response204.ok },
           },
         },
-      },
-      before: async function (instance: FastifyInstance) {
-        instance.addHook("onRequest", instance.packHandle(ApiRoute.accessibilityCheck));
-        instance.register(mutipart, {
-          attachFieldsToBody: true,
-          limits: {
-            fileSize: 5120,
-            files: 1,
-            fields: 1,
-          },
-        });
       },
     },
     {
@@ -376,7 +383,7 @@ const api: RoutePackConfig = {
           handler: ApiRoute.profiles,
           schema: {
             summary: "批量查询角色名称所对应的角色。可以使用角色uuid和角色名称。",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             body: schemas.RequestProfilesQuery,
             response: { 204: schemas.Response204.bad, 200: Packer.array("不包含角色属性")(schemas.PublicProfileData) },
           },
@@ -389,7 +396,7 @@ const api: RoutePackConfig = {
 const yggdrasil: RoutePackConfig = {
   get: {
     handler: () => Root.meta,
-    schema: { summary: "获取本 API 的元数据", tags: ["ydddrasil"], response: { 200: schemas.ResponseMeta } },
+    schema: { summary: "获取本 API 的元数据", tags: ["yggdrasil"], response: { 200: schemas.ResponseMeta } },
   },
   routes: [
     { url: "/authserver", config: authserver },
@@ -402,10 +409,66 @@ const yggdrasil: RoutePackConfig = {
           handler: Root.textures,
           schema: {
             summary: "获取hash对应的材质文件",
-            tags: ["ydddrasil"],
+            tags: ["yggdrasil"],
             params: Packer.object("材质hash")({ hash: schemas.sharedVars.hashUUid }, "hash"),
             response: { 200: Packer.typeNull("材质图片(.png)") },
             produces: ["image/png"],
+          },
+        },
+      },
+    },
+    {
+      url: "/minecraftservices/player/certificates",
+      config: {
+        post: {
+          handler: async (request: FastifyRequest) => {
+            function publicKeySignatureV2(pubKey: KeyObject, uuid: uuid, expiresAt: number) {
+              const timeBf = Buffer.alloc(8);
+              timeBf.writeBigUInt64BE(BigInt(new Date(expiresAt).getTime()), 0);
+              return Buffer.concat([Buffer.from(uuid, "hex"), timeBf, Buffer.from(pubKey.export({ type: "spki", format: "der" }))]);
+            }
+            if (!CONFIG.features.enable_profile_key) {
+              throw new ErrorResponse("ForbiddenOperation", "features.enable_profile_key is false.");
+            }
+            request.permCheck();
+            const accessToken: uuid = request.getToken();
+            const token = TOKENSMAP.get(accessToken);
+            const user = token.owner;
+            const { privkey, expiresAt } = await user.getUserPrivKey();
+            const pubKey = crypto.createPublicKey(privkey);
+            return new SuccessResponse({
+              keyPair: {
+                privateKey: Utils.keyRepack(privkey, true),
+                publicKey: Utils.keyRepack(pubKey, true),
+              },
+              expiresAt: new Date(expiresAt).toISOString(),
+              refreshedAfter: new Date(expiresAt - 1.44e7).toISOString(),
+              publicKeySignature: Utils.makeSignature(expiresAt + Utils.keyRepack(pubKey, true), PRIVATEKEY),
+              publicKeySignatureV2: Utils.makeSignature(publicKeySignatureV2(pubKey, token.profile, expiresAt), PRIVATEKEY),
+            });
+          },
+          schema: {
+            summary: "获取用户密钥对，用于加密聊天消息",
+            tags: ["yggdrasil"],
+            response: {
+              200: Packer.object()({
+                keyPair: Packer.object("密钥对")({
+                  privateKey: Packer.string("私钥"),
+                  publicKey: Packer.string("公钥"),
+                }),
+                expiresAt: Packer.string("密钥过期时间"),
+                refreshedAfter: Packer.string("密钥刷新时间"),
+                publicKeySignature: Packer.string("对公钥的签名，1.19早期版本使用"),
+                publicKeySignatureV2: Packer.string("对公钥的签名，1.19后期版本及更新版本使用"),
+              }),
+            },
+          },
+          before: function (instance) {
+            instance.addHook("onRequest", async function (request) {
+              if (request.headers["content-type"]) {
+                delete request.headers["content-type"];
+              }
+            });
           },
         },
       },

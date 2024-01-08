@@ -156,7 +156,7 @@ class Render {
     } = userInfo;
     const userElem = document.querySelector("#t-user").content.cloneNode(true);
     const placeholder = userElem.querySelectorAll("strong");
-    const [btnA, btnB, btnC] = userElem.querySelectorAll("button");
+    const [btnA, btnB] = userElem.querySelectorAll("button");
     const [newUsername, newNickName, newPassword, newPasswordAgain] = userElem.querySelectorAll("input");
     placeholder[0].innerText = role == "admin" ? "管理员" : "普通用户";
     placeholder[1].innerText = new Date(regTime).toLocaleString();
@@ -183,24 +183,12 @@ class Render {
     btnB.addEventListener("click", async (e) => {
       user.logout().then(() => alert("已注销当前会话"));
     });
-    btnC.addEventListener("click", async (e) => {
-      if (!confirm("你真的要删除账户吗？")) {
-        return;
-      }
-      e.target.setAttribute("disabled", "disabled");
-      const result = await user.deleteUser();
-      e.target.removeAttribute("disabled");
-      if (result instanceof ErrorResponse) {
-        return alert("删除用户失败。\n" + result.error);
-      }
-      alert("用户已经被删除。");
-    });
     appElem.append(userElem);
     for (const profileId of profiles) {
       const profile = await user.getProfile(profileId);
       const profileElem = document.querySelector("#t-profile-info").content.cloneNode(true);
       const [newProfileName, profileCapeVisible, mojangProfileName, littleSkinTid, uploadFile] = profileElem.querySelectorAll("input");
-      const [oprationType, deleteType, textureType] = profileElem.querySelectorAll("select");
+      const [operationType, deleteType, textureType] = profileElem.querySelectorAll("select");
       const placeholder = profileElem.querySelectorAll("strong");
       const { CAPE = null, SKIN = {} } = JSON.parse(Base64.decode(profile.properties[0].value)).textures;
       placeholder[0].innerText = profile.name;
@@ -208,7 +196,7 @@ class Render {
       placeholder[2].append(CAPE && CAPE.url ? Render.img(CAPE.url) : "无");
       profileElem.querySelectorAll("button")[0].addEventListener("click", async (e) => {
         e.target.setAttribute("disabled", "disabled");
-        const result = await user.editProfile(profile.id, newProfileName.value, oprationType.value, {
+        const result = await user.editProfile(profile.id, newProfileName.value, operationType.value, {
           capeVisible: profileCapeVisible.checked,
           profileName: mojangProfileName.value,
           littleskinTid: littleSkinTid.value,
@@ -222,7 +210,7 @@ class Render {
       });
       profileElem.querySelectorAll("button")[1].addEventListener("click", async (e) => {
         e.target.setAttribute("disabled", "disabled");
-        const result = await user.uploadFile(profile.id, textureType.value, uploadFile.files || undefined);
+        const result = await user.uploadFile(profile.id, textureType.value, uploadFile.files[0] || undefined);
         e.target.removeAttribute("disabled");
         if (result instanceof ErrorResponse) {
           return alert("材质上传失败。\n" + result.error);
@@ -254,7 +242,6 @@ class Render {
       }
       alert("新建角色成功，刷新页面以设置新的角色。");
     });
-    appElem.append(newProfileElem);
     const getRescueCodeElem = document.querySelector("#t-get-rescue-code").content.cloneNode(true);
     getRescueCodeElem.querySelector("button").addEventListener("click", async (e) => {
       if (window.rescueCode) {
@@ -269,15 +256,51 @@ class Render {
       window.rescueCode = result.rescueCode;
       alert("你的救援代码是: " + result.rescueCode + " 。注意：刷新网页后，将无法再次显示救援代码。");
     });
-    appElem.append(getRescueCodeElem);
+    const dangerOpElem = document.querySelector("#t-user-danger").content.cloneNode(true);
+    const [usernameInput, passwdInput, passwdAgainInput] = dangerOpElem.querySelectorAll("input");
+    const [btnLock, btnDelete] = dangerOpElem.querySelectorAll("button");
+    btnLock.addEventListener("click", async (e) => {
+      if (!confirm("你真的要锁定账户吗？")) {
+        return;
+      }
+      if (passwdInput.value != [passwdAgainInput.value]) {
+        return alert("两次输入的密码不一致");
+      }
+      e.target.setAttribute("disabled", "disabled");
+      const result = await user.lockUser(usernameInput.value, passwdInput.value);
+      e.target.removeAttribute("disabled");
+      if (result instanceof ErrorResponse) {
+        return alert("锁定用户失败。\n" + result.error);
+      }
+      alert("用户已经被锁定。");
+    });
+    btnDelete.addEventListener("click", async (e) => {
+      if (!confirm("你真的要删除账户吗？")) {
+        return;
+      }
+      if (passwdInput.value != [passwdAgainInput.value]) {
+        return alert("两次输入的密码不一致");
+      }
+      e.target.setAttribute("disabled", "disabled");
+      const result = await user.deleteUser(usernameInput.value, passwdInput.value);
+      e.target.removeAttribute("disabled");
+      if (result instanceof ErrorResponse) {
+        return alert("删除用户失败。\n" + result.error);
+      }
+      alert("用户已经被删除。");
+    });
+    appElem.append(newProfileElem, getRescueCodeElem, dangerOpElem);
     if (role == "admin") {
       const adminBanUserElem = document.querySelector("#t-admin-ban-user").content.cloneNode(true);
       const adminNewUserElem = document.querySelector("#t-admin-new-user").content.cloneNode(true);
+      const adminInviteCodeElem = document.querySelector("#t-admin-get-invite-code").content.cloneNode(true);
       const adminSettingsElem = document.querySelector("#t-admin-settings").content.cloneNode(true);
       const settings = await user.settings();
       const [targetToBan, duration] = adminBanUserElem.querySelectorAll("input");
       const [usercacheFile, suffix, inviteCode] = adminNewUserElem.querySelectorAll("input");
       const textarea = adminSettingsElem.querySelector("textarea");
+      const textarea2 = adminInviteCodeElem.querySelector("textarea");
+      const getInviteCodeCount = adminInviteCodeElem.querySelector("input");
       adminSettingsElem.querySelector("textarea").value = JSON.stringify(settings, null, 2);
       adminBanUserElem.querySelector("button").addEventListener("click", async (e) => {
         e.target.setAttribute("disabled", "disabled");
@@ -316,6 +339,15 @@ class Render {
         });
         window.open(URL.createObjectURL(blob), "_blank");
       });
+      adminInviteCodeElem.querySelector("button").addEventListener("click", async (e) => {
+        e.target.setAttribute("disabled", "disabled");
+        const result = await user.getInviteCode(getInviteCodeCount.value);
+        e.target.removeAttribute("disabled");
+        if (result instanceof ErrorResponse) {
+          return alert("获取邀请码失败。\n" + result.error);
+        }
+        textarea2.innerText = result.join("\n");
+      });
       adminSettingsElem.querySelector("button").addEventListener("click", async (e) => {
         e.target.setAttribute("disabled", "disabled");
         const result = await user.settings(JSON.parse(textarea.value));
@@ -325,7 +357,7 @@ class Render {
         }
         alert("已修改服务器设置。");
       });
-      appElem.append(adminBanUserElem, adminNewUserElem, adminSettingsElem);
+      appElem.append(adminBanUserElem, adminNewUserElem, adminInviteCodeElem, adminSettingsElem);
     }
   }
   static async header() {
@@ -350,7 +382,7 @@ class Render {
 
 class ErrorResponse {
   constructor(error) {
-    this.error = `${error.error} : ${error.errorMessage}`;
+    this.error = `${error.error} : ${error.errorMessage || ""}`;
   }
 }
 
@@ -459,14 +491,18 @@ class User {
         Authorization: "Bearer " + this.accessToken,
       },
       method: "patch",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ operation: "modify", data }),
     });
   }
-  deleteUser() {
+  lockUser(username, password) {
     return request("./server/user/" + this.uuid, {
-      headers: {
-        Authorization: "Bearer " + this.accessToken,
-      },
+      method: "patch",
+      body: JSON.stringify({ operation: "lock", data: { username, password } }),
+    });
+  }
+  deleteUser(username, password) {
+    return request("./server/user/" + this.uuid, {
+      body: JSON.stringify({ username, password }),
       method: "delete",
     });
   }
@@ -499,11 +535,11 @@ class User {
     return request(`/server/profile/${profile}/${type == "cape" ? "cape" : "skin"}`, {
       headers: {
         Authorization: "Bearer " + this.accessToken,
-        "content-type": file[0].type,
+        "content-type": file.type,
         "x-skin-model": type == "slim" ? "slim" : "default",
       },
       method: "put",
-      body: file[0],
+      body: file,
     });
   }
   deleteProfile(profile) {
@@ -539,6 +575,13 @@ class User {
       },
       method: "put",
       body: JSON.stringify(data),
+    });
+  }
+  getInviteCode(count) {
+    return request("./server/inviteCodes?count=" + count || 1, {
+      headers: {
+        Authorization: "Bearer " + this.accessToken,
+      },
     });
   }
   settings(data) {

@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest, FastifySchema, HTTPMethods } from "fastify";
 
+import { LogFn } from "pino";
+
 export type uuid = string;
 export type uploadableTextures = "skin" | "skin,cape";
 export type model = "default" | "slim";
@@ -60,14 +62,12 @@ export interface Config extends PublicConfig {
     disableUserInviteCode: boolean;
     /** 允许正版登录玩家进入游戏(将会带来一些问题) 建议同时安装插件：https://modrinth.com/plugin/freedomchat */
     enableOfficialProxy: boolean;
-    /** 禁止上传材质到服务器。如果程序没有检测到 sharp 图片处理库，该项会被自动启用 */
+    /** 禁止上传材质到服务器 */
     disableUploadTexture: boolean;
   };
   /** 皮肤服务器白名单 */
   skinDomains: string[];
   /** 用于计算数字签名的私钥 */
-  publicKeyPath: string;
-  /** 用于计算数字签名的公钥 */
   privateKeyPath: string;
   /** 扩展属性 */
   privExtend: {
@@ -107,7 +107,7 @@ export interface PublicConfig {
     no_mojang_namespace?: boolean;
     /** 是否开启 Minecraft 的 anti-features */
     enable_mojang_anti_features?: boolean;
-    /** 服务器是否支持 Minecraft 的消息签名密钥对功能, 即多人游戏中聊天消息的数字签名（需要验证服务器支持）（本实现不支持） */
+    /** 服务器是否支持 Minecraft 的消息签名密钥对功能, 即多人游戏中聊天消息的数字签名 */
     enable_profile_key?: boolean;
     /** 指示 authlib-injector 是否启用用户名验证功能（开启后，启动器将会直接拒绝启动） */
     username_check?: boolean;
@@ -134,6 +134,13 @@ export interface PrivateUserData extends PublicUserData {
   regIP: string;
   /** 用户拥有的角色列表 */
   profiles: string[];
+  /** 用于加密用户聊天的证书 */
+  cert: {
+    /** 私钥 */
+    privkey: string;
+    /** 过期时间 */
+    expiresAt: number;
+  };
   /** 扩展属性 */
   extend?: {
     /** 验证服务器个人注册邀请码。 */
@@ -154,6 +161,8 @@ export interface PublicUserData extends MinimumUserData {
   role: "admin" | "user";
   /** 是否被封禁，以及到期时间。如果大于当前时间就是被封禁。 */
   banned: number;
+  /** 是否是只读账户 */
+  readonly: boolean;
   /** 公共可见的扩展属性 */
   pubExtends: {
     /** 其他扩展属性 */
@@ -234,7 +243,6 @@ export interface TextureIndex {
   /** 材质的hash，对应使用该材质的profile的id */
   [key: uuid]: uuid[];
 }
-[];
 /** 认证请求 */
 export interface RequestAuth {
   /** 用户名 */
@@ -352,12 +360,12 @@ export type RoutePackConfig = {
   [key in HTTPMethods]?: {
     /** 具体的处理函数。传入request, reply。要用该 reply 发送响应，或是用它包装钩子，应返回false */
     handler: (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>;
-    /** (可选) 一个函数，返回限制请求速率的key。传入request */
-    rateLim?: (request: FastifyRequest) => string | Promise<string>;
     /** 验证和序列化 schema。 */
     schema?: FastifySchema;
-    /** 是否应用默认的响应 schema */
-    defaultResponse?: boolean;
+    /** 是否使用自定义的响应 schema */
+    customResponse?: boolean;
+    /** 在注册路由前执行的函数 */
+    before?: (instance: FastifyInstance) => any;
   };
 } & {
   /** 子路由列表 */
@@ -366,10 +374,18 @@ export type RoutePackConfig = {
     url: string;
     /** 子路由配置 */
     config: RoutePackConfig;
-    /** 在注册路由前执行的函数 */
-    before?: (instance: FastifyInstance) => Promise<any> | any;
   }[];
 };
+
+/** 对象的黑名单参数类型 */
+export type ObjBlackList =
+  | string
+  | {
+      /** 父节点 */
+      p: string;
+      /** 父节点上的黑名单属性 */
+      c: ObjBlackList[];
+    };
 
 /* 利用声明合并将自定义属性加入 Fastify 的类型系统 */
 declare module "fastify" {
@@ -377,7 +393,7 @@ declare module "fastify" {
     /**
      * 响应非2xx结果
      * @param error 错误代码
-     * @param errorMessage 详细错误原因
+     * @param errorMessage 详细错误说明
      * @param cause 导致错误的原因
      * @returns {void}
      */
@@ -389,12 +405,6 @@ declare module "fastify" {
      * @returns {void}
      */
     replySuccess: (data: any, code?: number) => void;
-    /**
-     * 响应允许的方法
-     * @param allowedMethod 允许的方法数组
-     * @returns {void}
-     */
-    allowedMethod: (...allowedMethod: ("post" | "put" | "delete" | "patch")[]) => void;
   }
   interface FastifyRequest {
     getIP: () => string;
@@ -425,12 +435,13 @@ declare module "fastify" {
     /**
      * 包装一个处理方法
      * @param handler 具体的处理函数。传入request, reply。要用该 reply 发送响应，或是用它包装钩子，应返回false
-     * @param rateLim (可选) 一个函数，返回限制请求速率的key。传入request
      * @returns {packedHandler}
      */
-    packHandle: (
-      handler: (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>,
-      rateLim?: (request: FastifyRequest) => string | Promise<string>
-    ) => (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>;
+    packHandle: (handler: (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>) => (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>;
+    allowedContentType: (...allowedContentTypes: string[]) => (request: FastifyRequest, reply: FastifyReply) => any | Promise<any>;
+  }
+  interface FastifyBaseLogger {
+    /** 登录事件日志级别 */
+    login: LogFn;
   }
 }

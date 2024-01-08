@@ -1,12 +1,11 @@
-import crypto from "crypto";
+import crypto, { KeyObject } from "crypto";
 import fs from "node:fs/promises";
 import { FastifyInstance, FastifyReply, FastifyRequest, HTTPMethods, RouteOptions } from "fastify";
-import { Config, Status, ProfileData, UserData, uuid, TextureIndex, RoutePackConfig } from "./interfaces.js";
-import Profile from "./profile.js";
-import Session from "./session.js";
+import { Status, uuid, RoutePackConfig, ObjBlackList } from "./interfaces.js";
 import Token from "./token.js";
-import User from "./user.js";
 import schemas from "./schemas.js";
+import User from "./user.js";
+import Profile from "./profile.js";
 
 /** 公共函数 */
 export default class Utils {
@@ -30,6 +29,22 @@ export default class Utils {
     return crypto.randomUUID().replace(/-/g, "");
   }
   /**
+   * 生成4096位rsa密钥对
+   * @param modulusLength 密钥长度，默认2048
+   */
+  static getRSAKeyPair(modulusLength: number = 2048): Promise<{ publicKey: KeyObject; privateKey: KeyObject }> {
+    const options = {
+      modulusLength,
+      publicExponent: 0x10001,
+    };
+    return new Promise((resolve, reject) => {
+      crypto.generateKeyPair("rsa", options, (err, publicKey, privateKey) => {
+        if (err) return reject(err);
+        resolve({ publicKey, privateKey });
+      });
+    });
+  }
+  /**
    * 计算sha256
    * @param content 要计算的内容
    * @returns sha256
@@ -44,12 +59,29 @@ export default class Utils {
    * @param privateKey 用于签名的私钥
    * @returns 签名
    */
-  static makeSignature(dataToSign: any, privateKey: string): string {
+  static makeSignature(dataToSign: any, privateKey: KeyObject): string {
     const sign = crypto.createSign("RSA-SHA1");
     sign.update(dataToSign);
     sign.end();
-    const signature = sign.sign(privateKey);
-    return signature.toString("base64");
+    return sign.sign(privateKey, "base64");
+  }
+  /**
+   * 替换pem格式密钥的开头和结束部分的标记
+   * @param keyObj 密钥对象
+   * @param rsaInHeader 是否在标记中添加 RSA ，默认为false
+   * @returns string
+   */
+  static keyRepack(keyObj: KeyObject, rsaInHeader: boolean = false): string {
+    function formatStr(pos: "BEGIN" | "END") {
+      return `-----${pos} ${rsaInHeader ? "RSA " : ""}${keyObj.type.toUpperCase()} KEY-----`;
+    }
+    const keyArr = keyObj
+      .export({ type: keyObj.type == "public" ? "spki" : "pkcs8", format: "pem" })
+      .toString()
+      .split("\n");
+    keyArr[0] = formatStr("BEGIN");
+    keyArr[keyArr.length - 2] = formatStr("END");
+    return keyArr.join("\n");
   }
   /** Base64编码 */
   static encodeb64(data: any): string {
@@ -59,36 +91,46 @@ export default class Utils {
   static decodeb64(data: string): string {
     return Buffer.from(data, "base64").toString("utf8");
   }
-  /** 以数组作为key的Map，实现多个键对应一个值（键的数组作为真正的键） */
-  static arrMap(): Map<any, any> {
-    return new (class extends Map {
-      constructor() {
-        super();
+  /**
+   * 清理对象，将预定义的黑名单属性从目标内删除
+   * @param target 清理目标对象
+   * @param blacklist 黑名单
+   */
+  static cleanObj(target: object, ...blacklist: ObjBlackList[]) {
+    for (let i of blacklist) {
+      if (typeof i == "string") {
+        delete target[i];
+        continue;
       }
-      operate(method: "get" | "has" | "delete", key: string): any {
-        for (let keyarr of this.keys()) {
-          if (keyarr.some((i: string) => i.toLowerCase() === key.toLowerCase())) {
-            return super[method](keyarr);
-          }
-        }
-        return false;
-      }
-      get(key: string): any {
-        return this.operate("get", key) || undefined;
-      }
-      has(key: string): boolean {
-        return this.operate("has", key);
-      }
-      delete(key: string): boolean {
-        return this.operate("delete", key);
-      }
-    })();
+      Utils.cleanObj(target[i.p], ...i.c);
+    }
   }
   /** 用于发出请求的请求头 */
   static get requestHeaders() {
     return {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 yggdrasilProxy/1.0.0",
     };
+  }
+}
+
+export class ArrayMap<_K, V> extends Map<string[], V> {
+  operate(method: "get" | "has" | "delete", key: string | string[]): any {
+    let Truekey: string = key instanceof Array ? key[0] : key;
+    for (let keyarr of this.keys()) {
+      if (keyarr.some((i: string) => i.toLowerCase() === Truekey.toLowerCase())) {
+        return super[method](keyarr);
+      }
+    }
+    return false;
+  }
+  get(key: string | string[]): V {
+    return this.operate("get", key) || undefined;
+  }
+  has(key: string | string[]): boolean {
+    return this.operate("has", key);
+  }
+  delete(key: string | string[]): boolean {
+    return this.operate("delete", key);
   }
 }
 
@@ -156,10 +198,11 @@ export class Plugin {
     instance: FastifyInstance,
     options: {
       gap: number;
-    } = { gap: 100 }
+      controller: AccessControl;
+    } = { gap: 100, controller: new AccessControl() }
   ): void {
     instance.decorateRequest("rateLim", function (key: string, ms?: number): true {
-      if (!ACCESSCONTROLLER.test(key, ms || options.gap)) {
+      if (!options.controller.test(key, ms || options.gap)) {
         //限制请求速率
         throw new ErrorResponse("ForbiddenOperation", "Operating too fast.");
       }
@@ -174,11 +217,30 @@ export class Plugin {
       return result ? result[0] : null;
     });
   }
+  /** 从请求中获取 AccessToken */
+  static allowedContentType(instance: FastifyInstance): void {
+    instance.decorate("allowedContentType", function (...allowedContentTypes: string[]) {
+      return instance.packHandle(function (request) {
+        const current = request.headers["content-type"];
+        if (current && !allowedContentTypes.includes(current)) {
+          throw new ErrorResponse("UnsupportedMediaType", `Unsupported content-type: ${current}`);
+        }
+        return false;
+      });
+    });
+  }
   /** 权限检查 */
-  static permissionCheck(instance: FastifyInstance): void {
+  static permissionCheck(
+    instance: FastifyInstance,
+    Maps: {
+      USERSMAP: ArrayMap<string[], User>;
+      PROFILEMAP: ArrayMap<[string, string], Profile>;
+      TOKENSMAP: Map<string, Token>;
+    }
+  ): void {
+    const { USERSMAP, PROFILEMAP, TOKENSMAP } = Maps;
     instance.decorateRequest("permCheck", function (userId?: uuid, profileId?: uuid, checkAdmin?: boolean): true {
       const accessToken: uuid = this.getToken();
-      let user = userId;
       if (userId && !USERSMAP.has(userId)) {
         //提供了用户id，但用户id无效
         throw new ErrorResponse("NotFound", "Invalid user.");
@@ -189,25 +251,13 @@ export class Plugin {
           //提供的uuid无效
           throw new ErrorResponse("NotFound", "Profile Not Found.");
         }
-        user = PROFILEMAP.get(profileId).owner;
+        userId = PROFILEMAP.get(profileId).owner;
       }
-      if (Token.validate(accessToken, undefined, user) != "valid" || (checkAdmin && TOKENSMAP.get(accessToken).owner.role != "admin")) {
+      if (Token.validate(accessToken, undefined, userId) != "valid" || (checkAdmin && TOKENSMAP.get(accessToken).owner.role != "admin")) {
         //提供的令牌无效；或者要求是管理员，但提供的 token 属于一般用户
         throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
       }
       return true;
-    });
-  }
-  /** 为options请求设置响应头 */
-  static allowedMethod(instance: FastifyInstance) {
-    instance.decorateReply("allowedMethod", function (...allowedMethod: ("post" | "put" | "delete" | "patch")[]): void {
-      this.headers({
-        Allow: allowedMethod.join(",").toUpperCase(),
-        "Access-Control-Allow-Methods": allowedMethod.join(",").toUpperCase(),
-        "Access-Control-Allow-Headers": "content-type,authorization",
-      });
-      this.status(200);
-      this.send();
     });
   }
   /** 重新包装路由方法 */
@@ -216,36 +266,43 @@ export class Plugin {
       /** 通常使用的 http 方法 */
       const normalMethods: Set<HTTPMethods> = new Set(["get", "post", "patch", "put", "delete", "options"]);
       const definedMethods = [];
-      const routes: RouteOptions[] = [];
       for (const method of normalMethods) {
         const configPart = config[method];
-        if (!configPart) {
-          continue;
-        }
+        if (!configPart) continue;
         const options: RouteOptions = {
           url,
           method,
           attachValidation: true,
-          handler: this.packHandle(configPart.handler, configPart.rateLim),
+          handler: this.packHandle(configPart.handler),
           schema: configPart.schema,
         };
-        if (configPart.defaultResponse) {
+        if (!configPart.customResponse) {
           options.schema.response = Object.assign({ "4xx": schemas.ResponseError }, configPart.schema.response);
         }
+        if (configPart.before) {
+          configPart.before(this);
+        }
+        this.route(options);
         definedMethods.push(method);
-        routes.push(options);
         normalMethods.delete(method);
       }
-      if (normalMethods.size < 6) {
+      if (definedMethods.length) {
         for (const method of normalMethods) {
-          routes.push({
+          this.route({
             url,
             method,
             attachValidation: true,
             handler: async function (request: FastifyRequest, reply: FastifyReply) {
               const reqMethod = request.method.toLowerCase();
               if (reqMethod == "options") {
-                return reply.allowedMethod(...definedMethods);
+                reply.headers({
+                  Allow: definedMethods.join(",").toUpperCase(),
+                  "Access-Control-Allow-Methods": definedMethods.join(",").toUpperCase(),
+                  "Access-Control-Allow-Headers": "content-type,authorization",
+                });
+                reply.status(200);
+                reply.send();
+                return false;
               }
               if (!definedMethods.includes(reqMethod)) {
                 reply.header("Allow", definedMethods.join(", ").toUpperCase());
@@ -259,27 +316,21 @@ export class Plugin {
           });
         }
       }
-      for (const routeOpt of routes) {
-        this.route(routeOpt);
-      }
       if (config.routes) {
-        this.register(
-          async function (instance: FastifyInstance) {
-            for (const route of config.routes) {
-              if (route.before) {
-                await route.before(instance);
-              }
+        for (const route of config.routes) {
+          this.register(
+            async function (instance: FastifyInstance) {
               instance.pack(route.url, route.config);
-            }
-          },
-          { prefix: url }
-        );
+            },
+            { prefix: url }
+          );
+        }
       }
     });
   }
   /** 包装应用代码 */
   static handlePacker(instance: FastifyInstance) {
-    instance.decorate("packHandle", function (handler: (request: FastifyRequest, reply: FastifyReply) => any, rateLim?: (request: FastifyRequest) => string | Promise<string>) {
+    instance.decorate("packHandle", function (handler: (request: FastifyRequest, reply: FastifyReply) => SuccessResponse<any> | false | Promise<SuccessResponse<any> | false>) {
       return async function packedHandler(request: FastifyRequest, reply: FastifyReply) {
         try {
           if (request.validationError) {
@@ -289,10 +340,6 @@ export class Plugin {
             } = request.validationError;
             throw new ErrorResponse("BadOperation", `Validation failed of the ${validationContext}: ${keyword} of ${instancePath} ${message}.`);
           }
-          if (rateLim) {
-            const rateLimKey = await rateLim(request);
-            request.rateLim(rateLimKey);
-          }
           const result = await handler(request, reply);
           if (result instanceof SuccessResponse) {
             return result.response(reply);
@@ -300,7 +347,7 @@ export class Plugin {
           if (result == false) {
             return;
           }
-          instance.log.error(new Error(`意外的响应体类型: ${handler}`));
+          instance.log.error(new Error(`意外的响应体类型: ${result} ,位于 ${handler}`));
           reply.replySuccess(result);
         } catch (err) {
           if (err instanceof ErrorResponse) {
@@ -342,60 +389,31 @@ export class SuccessResponse<T> {
   }
 }
 
-/** 一个json文件对象 */
-export class JsonFile<T> {
-  /** json文件路径 */
-  path: string;
-  /** json文件内容 */
-  content: T;
-  constructor(filePath: string, content: any) {
-    this.path = filePath;
-    this.content = content;
-  }
+/** 管理JSON文件 */
+const JsonFilePath = Symbol("JsonFilePath");
+
+export class JSONFile {
   /**
-   * 读取json文件
+   * 读取一个json文件
    * @param filePath 文件路径
-   * @param onError (可选) 读取出错时的回调函数。可以返回一个对象作为读取失败后返回的默认值。
-   * @returns {JsonFile}
+   * @param onError 若读取失败，调用的函数，传入一个Error对象。函数返回的结果会被作为默认值。
+   * @returns
    */
-  static async read(filePath: string, onError?: (err: Error) => void | any): Promise<JsonFile<any>> {
-    try {
-      const content = await fs.readFile(filePath);
-      const json = JSON.parse(content.toString());
-      return new JsonFile(filePath, json);
-    } catch (err) {
-      let json = {};
-      if (onError) {
-        json = onError(err) ?? {};
-      }
-      return new JsonFile(filePath, json);
-    }
+  static async read<T>(filePath: string): Promise<T> {
+    const content = await fs.readFile(filePath);
+    let data: T = JSON.parse(content.toString("utf-8"));
+    data[JsonFilePath] = filePath;
+    return data;
   }
-  /** 保存文件 */
-  async save(): Promise<void> {
-    try {
-      await fs.writeFile(this.path, JSON.stringify(this.content, null, 2));
-    } catch (err) {
-      throw new Error("保存文件失败：" + err.message);
-    }
-  }
-  /** 重新加载文件 */
-  async reload(): Promise<boolean> {
-    try {
-      const content = await fs.readFile(this.path);
-      this.content = JSON.parse(content.toString());
-      return true;
-    } catch {
-      return false;
-    }
+  /** 保存一个文件对象 */
+  static async save(fileObj: any) {
+    let filePath: string = fileObj[JsonFilePath];
+    if (!filePath) throw new Error("无法保存: 没有从对象中获得有效的保存路径");
+    await fs.writeFile(fileObj[JsonFilePath], JSON.stringify(fileObj, null, 2));
   }
 }
-
 /** 用于速率限制的Map */
-class accessControl extends Map {
-  constructor() {
-    super();
-  }
+export class AccessControl extends Map {
   /**
    * 对访问做出速率限制。返回的布尔值表示了当次调用是否在速率限制之内。（距离上次调用，是否已经间隔了足够长）
    * @param name 受到速率限制的对象
@@ -404,48 +422,17 @@ class accessControl extends Map {
    */
   test(name: string, rate: number = 100): boolean {
     const now: number = new Date().getTime(); //调用时，记录现在的时间
-    if (this.has(name)) {
-      //并非首次调用
-      const lastAccess = this.get(name); //上次调用的时间
-      if (now >= rate + lastAccess) {
-        //时间间隔已经达到要求
-        this.set(name, now); //重新设置调用时间
-        return true;
-      }
-      return false;
+    if (!this.has(name)) {
+      //首次调用，记录请求时长
+      this.set(name, now);
+      return true;
     }
-    //首次调用，记录请求时长
-    this.set(name, now);
-    return true;
+    const lastAccess: number = this.get(name); //上次调用的时间
+    if (now >= rate + lastAccess) {
+      //时间间隔已经达到要求
+      this.set(name, now); //重新设置调用时间
+      return true;
+    }
+    return false;
   }
 }
-
-//全大写的常量，被程序全局依赖
-/** 程序设置 */
-export const CONFIG: JsonFile<Config> = await JsonFile.read("./data/config.json", (e) => {
-  throw new Error("读取配置文件失败: " + e.message);
-});
-/** 用户数据，可存储到json文件 */
-export const USERS: JsonFile<{ [key: uuid]: UserData }> = await JsonFile.read("./data/users.json");
-/** 角色数据，可存储到json文件 */
-export const PROFILES: JsonFile<{ [key: uuid]: ProfileData }> = await JsonFile.read("./data/profiles.json");
-/** 材质目录 */
-export const TEXTURES: JsonFile<TextureIndex> = await JsonFile.read("./data/textures.json");
-/** 私钥数据 */
-export const PRIVATEKEY = await fs.readFile(CONFIG.content.privateKeyPath).catch((e) => {
-  throw new Error("读取私钥失败: " + e.message);
-});
-/** 公钥数据 */
-export const PUBLICKEY = await fs.readFile(CONFIG.content.publicKeyPath).catch((e) => {
-  throw new Error("读取公钥失败: " + e.message);
-});
-/** 用户数据Map */
-export const USERSMAP = User.buildMap();
-/** 角色数据Map */
-export const PROFILEMAP = Profile.buildMap();
-/** 令牌数据Map，仅存在于内存 */
-export const TOKENSMAP: Map<uuid, Token> = new Map();
-/** 会话数据Map，仅存在于内存 */
-export const SESSIONMAP: Map<string, Session> = new Map();
-/** 访问控制器使用的Map */
-export const ACCESSCONTROLLER = new accessControl();

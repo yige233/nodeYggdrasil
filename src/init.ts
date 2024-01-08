@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto, { KeyObject } from "crypto";
 import { Config } from "./libs/interfaces.js";
 
 async function mkDir(dir: string) {
@@ -37,11 +38,11 @@ const config: Config = {
     disableUploadTexture: false,
   },
   privateKeyPath: "./data/privkey.pem",
-  publicKeyPath: "./data/pubkey.pem",
   skinDomains: ["littleskin.cn", ".littleskin.cn", "localhost", ".minecraft.net"],
   features: {
     non_email_login: true,
     username_check: false,
+    enable_profile_key: true,
     no_mojang_namespace: false,
     enable_mojang_anti_features: false,
   },
@@ -53,19 +54,24 @@ const config: Config = {
   },
 };
 
+const options = {
+  modulusLength: 4096,
+  publicExponent: 0x10001,
+};
+const privateKey: KeyObject = await new Promise((resolve, reject) => {
+  crypto.generateKeyPair("rsa", options, (err, _publicKey, privateKey) => {
+    if (err) return reject(err);
+    resolve(privateKey);
+  });
+});
+
 await mkDir("./data");
 await mkDir("./data/textures");
 await fs.writeFile("./data/config.json", JSON.stringify(config, null, 2));
-console.log(`
-程序所需的配置文件已经创建完成。现在可遵循指引，获取用于验证数字签名的公钥和私钥。
-  1、打开 https://www.cryptool.org/en/cto/openssl 。其加载完毕后会出现一个终端黑框。
-  2、在终端中依次输入以下命令：
-    openssl genrsa -out privkey.pem 4096
-    openssl rsa -pubout -in /privkey.pem -outform PEM -out pubkey.pem
-  3、点击终端下方的 Files 按钮，下载 privkey.pem 和 pubkey.pem。
-  4、将两个 .pem 文件放入本程序下面的 data 文件夹中。
+await fs.writeFile("./data/privkey.pem", privateKey.export({ type: "pkcs8", format: "pem" }));
 
-  ℹ️ 该网站使用了 WebAssembly 技术，密钥的创建实际上完全是在你的电脑上完成的。
+console.log(`
+程序所需的配置文件已经创建完成。下面是一些说明：
 
 ℹ️ 首次创建用户时不需要邀请码，且会默认该账户为管理员账户。
 

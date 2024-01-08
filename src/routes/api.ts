@@ -1,22 +1,22 @@
 import { FastifyRequest } from "fastify";
-import { CONFIG, ErrorResponse, PROFILEMAP, SuccessResponse, TOKENSMAP, USERSMAP } from "../libs/utils.js";
+import Utils, { ErrorResponse, JSONFile, SuccessResponse } from "../libs/utils.js";
 import Profile from "../libs/profile.js";
-import User from "../libs/user.js";
+import User, { TempInviteCodes } from "../libs/user.js";
 import { Config, RequestAuth, RequestRefresh, RequestSignout, RoutePackConfig, uuid } from "../libs/interfaces.js";
 import { ApiRoute, AuthserverRoute, Root, SessionserverRoute } from "./yggdrasil.js";
 import Textures from "../libs/textures.js";
 import schemas, { Packer } from "../libs/schemas.js";
+import { TOKENSMAP, USERSMAP, PROFILEMAP, CONFIG } from "../global.js";
 
 /** 会话（登录相关） */
 const sessions: RoutePackConfig = {
   /** 登录 */
   put: {
     handler: function (request: FastifyRequest<{ Body: RequestAuth }>) {
-      request.rateLim(request.body.username || "");
-      const result = AuthserverRoute.authenticate(request);
+      const user = AuthserverRoute.authenticate(request);
       return new SuccessResponse({
-        accessToken: result.data.accessToken,
-        uuid: TOKENSMAP.get(result.data.accessToken).owner.id,
+        accessToken: user.data.accessToken,
+        uuid: TOKENSMAP.get(user.data.accessToken).owner.id,
       });
     },
     schema: {
@@ -45,7 +45,6 @@ const sessions: RoutePackConfig = {
   delete: {
     handler: function (request: FastifyRequest<{ Body: RequestSignout & { accessToken: uuid }; Querystring: { all: string } }>) {
       if (request.query.all) {
-        request.rateLim(request.body.username || "");
         return AuthserverRoute.signout(request as FastifyRequest<{ Body: RequestSignout }>);
       }
       return AuthserverRoute.invalidate(request as FastifyRequest<{ Body: { accessToken: uuid } }>);
@@ -94,24 +93,38 @@ const user: RoutePackConfig = {
   },
   /** 更新用户信息 */
   patch: {
-    handler: async function (request: FastifyRequest<{ Params: { uuid: uuid }; Body: { username: string; password: string; nickName: string } }>) {
+    handler: async function (request: FastifyRequest<{ Params: { uuid: uuid }; Body: { operation: "modify" | "lock"; data: { username?: string; password?: string; nickName?: string } } }>) {
       const uuid: uuid = request.params.uuid,
-        { username = null, password = null, nickName = null } = request.body;
-      request.permCheck(uuid);
-      const user = USERSMAP.get(uuid);
-      const result = await user.setUserInfo(username, password, nickName);
-      return new SuccessResponse(result.privateUserData);
+        { username = null, password = null, nickName = null } = request.body.data;
+      if (request.body.operation == "modify") {
+        request.permCheck(uuid);
+        const result = await USERSMAP.get(uuid).setUserInfo(username, password, nickName);
+        return new SuccessResponse(result.privateUserData);
+      }
+      if (request.body.operation == "lock") {
+        request.rateLim(username || "");
+        const user = User.authenticate(username, password);
+        if (user.id != uuid) {
+          throw new ErrorResponse("BadOperation", "Invalid userId.");
+        }
+        await user.makeReadonly();
+        return new SuccessResponse(undefined, 204);
+      }
+      throw new ErrorResponse("BadOperation", `Unknown operation: ${request.body.operation}`);
     },
     schema: {
       summary: "更新用户的信息",
-      description: "目前可以修改以下项目：用户账户、密码和昵称。需要提供有效的令牌。",
+      description: "目前可以修改以下项目：用户账户、密码和昵称；永久锁定账户。需要提供有效的令牌。",
       tags: ["server"],
       params: Packer.object()({ uuid: schemas.sharedVars.userUuid }, "uuid"),
-      headers: Packer.object()({ authorization: schemas.sharedVars.authorization }, "authorization"),
+      headers: Packer.object()({ authorization: schemas.sharedVars.authorization }),
       body: Packer.object()({
-        username: schemas.sharedVars.username,
-        password: schemas.sharedVars.password,
-        nickName: Packer.string("用户的昵称"),
+        operation: Packer.string("要进行的操作类型。modify为修改相关信息，需要提供有效的token；lock为锁定用户，是其变为只读状态，需要提供账号密码。", "modify", "lock"),
+        data: Packer.object("要更新的数据")({
+          username: schemas.sharedVars.username,
+          password: schemas.sharedVars.password,
+          nickName: Packer.string("用户的昵称"),
+        }),
       }),
       response: {
         200: schemas.PrivateUserData,
@@ -120,23 +133,29 @@ const user: RoutePackConfig = {
   },
   /** 删除（注销）用户 */
   delete: {
-    handler: async function (request: FastifyRequest<{ Params: { uuid: uuid } }>) {
+    handler: async function (request: FastifyRequest<{ Params: { uuid: uuid }; Body: RequestSignout }>) {
+      request.rateLim(request.body.username || "");
       const uuid: uuid = request.params.uuid;
-      request.permCheck(uuid);
-      await USERSMAP.get(uuid).save(true);
+      const { username = null, password = null }: RequestSignout = request.body;
+      const user = User.authenticate(username, password);
+      if (user.id != uuid) {
+        throw new ErrorResponse("BadOperation", "Invalid userId.");
+      }
+      await user.remove();
       return new SuccessResponse(undefined, 204);
     },
     schema: {
       summary: "删除用户",
-      description: "删除指定的用户数据，包括拥有的角色和材质。需要提供有效的令牌",
+      description: "删除指定的用户数据，包括拥有的角色和材质。需要提供有效的账号密码，url中的用户uuid也要是正确的",
       tags: ["server"],
       params: Packer.object()({ uuid: schemas.sharedVars.userUuid }, "uuid"),
-      headers: Packer.object()({ authorization: schemas.sharedVars.authorization }, "authorization"),
+      body: schemas.RequestSignout,
       response: {
         204: schemas.Response204.ok,
       },
     },
   },
+  /** 救援码和找回密码 */
   routes: [
     {
       url: "/rescueCode",
@@ -201,9 +220,6 @@ const users: RoutePackConfig = {
   get: {
     handler: async (request: FastifyRequest<{ Querystring: { user: string } }>, reply) => {
       const username = request.query.user;
-      if (!username) {
-        throw new ErrorResponse("BadOperation", "Query param 'user' is required.");
-      }
       if (USERSMAP.has(username)) {
         reply.header("Location", `./user/${USERSMAP.get(username).id}`);
         reply.status(302);
@@ -275,9 +291,10 @@ const users: RoutePackConfig = {
         ),
       },
     },
-    defaultResponse: false,
+    customResponse: true,
   },
 };
+/** 单个角色相关 */
 const profile: RoutePackConfig = {
   /** 获取角色信息 */
   get: {
@@ -344,7 +361,7 @@ const profile: RoutePackConfig = {
     handler: async (request: FastifyRequest<{ Params: { uuid: uuid } }>) => {
       const uuid = request.params.uuid;
       request.permCheck(undefined, uuid);
-      await PROFILEMAP.get(uuid).save(true);
+      await USERSMAP.get(PROFILEMAP.get(uuid).owner).removeProfile(uuid);
       return new SuccessResponse(undefined, 204);
     },
     schema: {
@@ -356,26 +373,10 @@ const profile: RoutePackConfig = {
       response: { 204: schemas.Response204.ok },
     },
   },
+  /** 材质相关 */
   routes: [
     {
       url: "/:textureType",
-      before: function (instance) {
-        instance.addContentTypeParser("image/png", async function (_request: FastifyRequest, payload) {
-          return await new Promise((resolve, reject) => {
-            try {
-              const chunks = [];
-              payload.on("data", (chunk: any) => chunks.push(chunk));
-              payload.on("end", () => {
-                resolve(Buffer.concat(chunks));
-              });
-            } catch (err) {
-              err.statusCode = 400;
-              reject(err);
-            }
-          });
-        });
-        instance.addHook("onRequest", instance.packHandle(ApiRoute.accessibilityCheck));
-      },
       config: {
         /** 上传材质 */
         put: {
@@ -410,6 +411,24 @@ const profile: RoutePackConfig = {
             ),
             response: { 204: schemas.Response204.ok },
           },
+          before: function (instance) {
+            instance.addContentTypeParser("image/png", async function (_request: FastifyRequest, payload) {
+              return await new Promise((resolve, reject) => {
+                try {
+                  const chunks = [];
+                  payload.on("data", (chunk: any) => chunks.push(chunk));
+                  payload.on("end", () => {
+                    resolve(Buffer.concat(chunks));
+                  });
+                } catch (err) {
+                  err.statusCode = 400;
+                  reject(err);
+                }
+              });
+            });
+            instance.addHook("onRequest", instance.allowedContentType("image/png"));
+            instance.addHook("onRequest", instance.packHandle(ApiRoute.accessibilityCheck));
+          },
         },
         /** 删除材质 */
         delete: {
@@ -427,7 +446,6 @@ const profile: RoutePackConfig = {
     },
   ],
 };
-
 /** 角色这一集合相关 */
 const profiles: RoutePackConfig = {
   /** 批量获取角色 */
@@ -469,23 +487,23 @@ const settings: RoutePackConfig = {
     handler: (request) => {
       try {
         request.permCheck(undefined, undefined, true);
-        return new SuccessResponse(CONFIG.content);
+        return new SuccessResponse(CONFIG);
       } catch {
         return new SuccessResponse({
           server: {
-            name: CONFIG.content.server.name,
-            root: CONFIG.content.server.root,
-            homepage: CONFIG.content.server.homepage,
-            register: CONFIG.content.server.register,
+            name: CONFIG.server.name,
+            root: CONFIG.server.root,
+            homepage: CONFIG.server.homepage,
+            register: CONFIG.server.register,
           },
           user: {
-            passLenLimit: CONFIG.content.user.passLenLimit,
-            disableUserInviteCode: CONFIG.content.user.disableUserInviteCode,
-            enableOfficialProxy: CONFIG.content.user.enableOfficialProxy,
-            disableUploadTexture: CONFIG.content.user.disableUploadTexture,
+            passLenLimit: CONFIG.user.passLenLimit,
+            disableUserInviteCode: CONFIG.user.disableUserInviteCode,
+            enableOfficialProxy: CONFIG.user.enableOfficialProxy,
+            disableUploadTexture: CONFIG.user.disableUploadTexture,
           },
-          features: CONFIG.content.features,
-          pubExtend: CONFIG.content.pubExtend,
+          features: CONFIG.features,
+          pubExtend: CONFIG.pubExtend,
         });
       }
     },
@@ -500,47 +518,34 @@ const settings: RoutePackConfig = {
   /** 修改设置项 */
   patch: {
     handler: async (request) => {
-      function compare(newItem: any, oldItem: any): any {
-        if (typeof newItem == typeof oldItem) {
-          //两者type相同
-          if (Array.isArray(newItem) == Array.isArray(oldItem)) {
-            //两者均为数组，或均不是数组
-            return newItem;
-          }
-          return oldItem;
-        }
-        return oldItem;
-      }
-      function assign(background: object, layer: object): any {
-        const result = {};
-        for (let i in background) {
-          if (typeof background[i] == "object" && !Array.isArray(background[i])) {
-            result[i] = assign(background[i], layer[i]);
+      function merge(source: Config, newConfig: Partial<Config>) {
+        for (const key in newConfig) {
+          if (source[key] instanceof Array && newConfig[key] instanceof Array) {
+            source[key] = newConfig[key].filter((i: any): boolean => typeof i == "string");
             continue;
           }
-          result[i] = layer != undefined && layer[i] != undefined ? compare(layer[i], background[i]) : background[i];
-          if (Array.isArray(background[i])) {
-            result[i] = result[i].filter((i: any): boolean => typeof i == "string");
+          if (typeof source[key] == "object") {
+            merge(source[key], newConfig[key]);
+            continue;
+          }
+          if (typeof source[key] == typeof newConfig[key]) {
+            source[key] = newConfig[key];
           }
         }
-        return result;
       }
       request.permCheck(undefined, undefined, true);
       let newConfig: Partial<Config> = request.body;
-      if (newConfig?.server?.host) delete newConfig?.server.host;
-      if (newConfig?.server?.port) delete newConfig?.server.port;
-      if (newConfig?.server?.root) delete newConfig?.server.root;
-      if (newConfig?.privateKeyPath) delete newConfig?.privateKeyPath;
-      if (newConfig?.publicKeyPath) delete newConfig?.publicKeyPath;
-      CONFIG.content = assign(CONFIG.content, newConfig);
-      await CONFIG.save();
-      return new SuccessResponse(CONFIG.content);
+      Utils.cleanObj(newConfig, { p: "server", c: ["host", "port", "root"] }, "privateKeyPath");
+      merge(CONFIG, request.body);
+      await JSONFile.save(CONFIG);
+      return new SuccessResponse(CONFIG);
     },
     schema: {
       summary: "修改服务器配置和设置",
-      description: "不能修改以下项目：server.host, server.port, server.root, privateKeyPath, publicKeyPathpublicKeyPath。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
+      description: "不能修改以下项目：server.host, server.port, server.root, privateKeyPath。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.sharedVars.authorization }, "authorization"),
+      body: schemas.Config,
       response: { 200: schemas.Config },
     },
   },
@@ -552,7 +557,19 @@ const bans: RoutePackConfig = {
     handler: async (request: FastifyRequest<{ Body: { target: string; duration: number } }>) => {
       request.permCheck(undefined, undefined, true);
       const { target, duration } = request.body;
-      return await User.ban(target, Number(duration));
+      if (!USERSMAP.has(target) || !PROFILEMAP.has(target)) {
+        //该用户不存在
+        throw new ErrorResponse("BadOperation", `Invalid user or profile.`);
+      }
+      let user: User;
+      if (USERSMAP.has(target)) {
+        user = USERSMAP.get(target);
+      }
+      if (PROFILEMAP.has(target)) {
+        user = USERSMAP.get(PROFILEMAP.get(target).owner);
+      }
+      await user.ban(Number(duration));
+      return new SuccessResponse(user.publicUserData);
     },
     schema: {
       summary: "封禁一位用户",
@@ -567,6 +584,30 @@ const bans: RoutePackConfig = {
     },
   },
 };
+/** 邀请码 */
+const inviteCode: RoutePackConfig = {
+  /** 生成邀请码 */
+  get: {
+    handler: async (request: FastifyRequest<{ Querystring: { count: number } }>) => {
+      request.permCheck(undefined, undefined, true);
+      const { count = 1 } = request.query;
+      const list = [];
+      for (let i = 0; i < (count > 0 ? count : 1); i++) {
+        list.push(TempInviteCodes.new());
+      }
+      return new SuccessResponse(list);
+    },
+    schema: {
+      summary: "由管理员生成邀请码",
+      description: "系统性临时邀请码。管理员可以生成临时邀请码，具有30分钟有效期，使用后作废。",
+      tags: ["server"],
+      querystring: Packer.object()({ count: Packer.string("要生成的邀请码数量") }),
+      response: {
+        200: Packer.array("邀请码列表。至少包含一个。")(Packer.string("邀请码")),
+      },
+    },
+  },
+};
 const server: RoutePackConfig = {
   routes: [
     { url: "/sessions", config: sessions },
@@ -576,6 +617,7 @@ const server: RoutePackConfig = {
     { url: "/profile/:uuid", config: profile },
     { url: "/settings", config: settings },
     { url: "/bans", config: bans },
+    { url: "/inviteCodes", config: inviteCode },
     {
       url: "/textures/:hash",
       config: {

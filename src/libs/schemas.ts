@@ -72,7 +72,7 @@ const model = string("皮肤可使用的模型", "default", "slim"),
     password: string("用户密码"),
     username: string("用户账号(邮箱)"),
   },
-  Config = object("验证服务器配")({
+  Config = object("验证服务器配置")({
     features: object("验证服务器的特性")({
       enable_mojang_anti_features: boolean("是否开启 Minecraft 的 anti-features"),
       enable_profile_key: boolean("服务器是否支持 Minecraft 的消息签名密钥对功能, 即多人游戏中聊天消息的数字签名(需要验证服务器支持)(目前不支持)"),
@@ -84,7 +84,6 @@ const model = string("皮肤可使用的模型", "default", "slim"),
     privExtend: object("私有扩展属性", true)(undefined),
     pubExtend: object("公开可见的扩展属性", true)(undefined),
     privateKeyPath: string("用于计算数字签名的公钥路径(不能在线修改)"),
-    publicKeyPath: string("用于计算数字签名的私钥路径(不能在线修改)"),
     server: object("服务器相关")({
       homepage: string("验证服务器主页"),
       host: string("服务器监听的地址(空字符串被视为监听所有地址)(不能在线修改)"),

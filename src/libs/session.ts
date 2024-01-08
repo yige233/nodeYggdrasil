@@ -1,7 +1,8 @@
 import net from "node:net";
 import { PublicProfileData, uuid } from "./interfaces.js";
 import Token from "./token.js";
-import Utils, { SESSIONMAP, TOKENSMAP, PROFILEMAP, ErrorResponse, CONFIG } from "./utils.js";
+import Utils, {  ErrorResponse } from "./utils.js";
+import { CONFIG, PROFILEMAP, SESSIONMAP, TOKENSMAP } from "../global.js";
 
 /** 会话 */
 export default class Session {
@@ -30,44 +31,42 @@ export default class Session {
    * @returns {boolean}
    */
   static async hasJoined(username: string, serverId: string, ip?: string): Promise<PublicProfileData> {
-    return new Promise((resolve, reject) => {
-      if (!SESSIONMAP.has(serverId)) {
-        //不存在该serverid
-        return reject(false);
+    if (!SESSIONMAP.has(serverId)) {
+      //不存在该serverid
+      throw false;
+    }
+    const session = SESSIONMAP.get(serverId);
+    if (new Date().getTime() > session.issuedTime + 3e4) {
+      //该id对应的会话已过期（超过30秒）
+      SESSIONMAP.delete(serverId);
+      throw false;
+    }
+    if (!PROFILEMAP.has(username)) {
+      //不存在的用户名称
+      throw false;
+    }
+    const profile = PROFILEMAP.get(session.selectedProfile);
+    if (username != profile.name) {
+      //提供的用户名称与记录的用户名称不符;
+      throw false;
+    }
+    if (ip) {
+      //提供了客户端 ip
+      let sessionRecorded = session.ip;
+      if (net.isIP(ip) != 0 && net.isIP(ip) != net.isIP(session.ip)) {
+        /**
+         * 如果两边 ip 版本不同，那么试图从服务器记录的 ip 中提取 ipv4
+         * 如果服务端记录的是映射到v6的v4地址，那么服务端的ip测试结果是6，提供的ip就是v4，提取后如果二者相同就通过
+         * 如果服务端记录的是常规ipv6，那么提取结果是null，与提供的ipv4肯定不符，拒绝
+         * 如果服务端记录的是ipv4，那么提供的ip就是v6，提取结果与提供的ip肯定不符，拒绝
+         */
+        sessionRecorded = session.ip.match(/(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/g)[0];
       }
-      const session = SESSIONMAP.get(serverId);
-      if (new Date().getTime() > session.issuedTime + 3e4) {
-        //该id对应的会话已过期（超过30秒）
-        SESSIONMAP.delete(serverId);
-        return reject(false);
+      if (ip != sessionRecorded) {
+        throw false;
       }
-      if (!PROFILEMAP.has(username)) {
-        //不存在的用户名称
-        return reject(false);
-      }
-      const profile = PROFILEMAP.get(session.selectedProfile);
-      if (username != profile.name) {
-        //提供的用户名称与记录的用户名称不符;
-        return reject(false);
-      }
-      if (ip) {
-        //提供了客户端 ip
-        let sessionRecorded = session.ip;
-        if (net.isIP(ip) != 0 && net.isIP(ip) != net.isIP(session.ip)) {
-          /**
-           * 如果两边 ip 版本不同，那么试图从服务器记录的 ip 中提取 ipv4
-           * 如果服务端记录的是映射到v6的v4地址，那么服务端的ip测试结果是6，提供的ip就是v4，提取后如果二者相同就通过
-           * 如果服务端记录的是常规ipv6，那么提取结果是null，与提供的ipv4肯定不符，拒绝
-           * 如果服务端记录的是ipv4，那么提供的ip就是v6，提取结果与提供的ip肯定不符，拒绝
-           */
-          sessionRecorded = session.ip.match(/(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/g)[0];
-        }
-        if (ip != sessionRecorded) {
-          return reject(false);
-        }
-      }
-      return resolve(PROFILEMAP.get(username).getYggdrasilData(true, true));
-    });
+    }
+    return PROFILEMAP.get(username).getYggdrasilData(true, true);
   }
   /**
    * 对于正版登录，验证端起一个代理作用，向官方验证端验证会话有效性，实现兼容正版登录
@@ -78,7 +77,7 @@ export default class Session {
    */
   static async hasJoinedProxy(username: string, serverId: string, ip?: string): Promise<PublicProfileData> {
     const url = new URL(`https://sessionserver.mojang.com/session/minecraft/hasJoined?username=${username}&serverId=${serverId}`);
-    if (!CONFIG.content.user.enableOfficialProxy || /[\u4e00-\u9fa5]/.test(username)) {
+    if (!CONFIG.user.enableOfficialProxy || /[\u4e00-\u9fa5]/.test(username)) {
       //没有启用兼容正版验证，或者提供的用户名含有中文字符 (肯定过不了官方验证)
       throw false;
     }

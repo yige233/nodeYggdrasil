@@ -5,7 +5,8 @@ import Ajv, { KeywordCxt } from "ajv";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import fs from "fs/promises";
-import { CONFIG, Plugin } from "./libs/utils.js";
+import { ACCESSCONTROLLER, CONFIG, PROFILEMAP, TOKENSMAP, USERSMAP } from "./global.js";
+import { Plugin } from "./libs/utils.js";
 import yggdrasil from "./routes/yggdrasil.js";
 import server from "./routes/api.js";
 
@@ -24,7 +25,7 @@ ajv.addKeyword({
 });
 
 const app: FastifyInstance = Fastify({
-  trustProxy: CONFIG.content.server.proxyCount || false,
+  trustProxy: CONFIG.server.proxyCount || false,
   disableRequestLogging: true,
   exposeHeadRoutes: true,
   ignoreTrailingSlash: true,
@@ -34,10 +35,17 @@ const app: FastifyInstance = Fastify({
         return { level: label.toUpperCase() };
       },
     },
+    customLevels: {
+      /** 登录事件日志 */
+      login: 35
+    },
     stream: {
       write(msg) {
         const { level, time, msg: message, err = null } = JSON.parse(msg);
         const date = new Date(time).toLocaleString();
+        if (level=="LOGIN") {
+          fs.appendFile("./data/logins.log", `[${date}] [${level}] ${message}\r\n`);
+        }
         if (level == "ERROR") {
           const prettyMsg = [`[${date}] [${level}] ${message}`, `  type:${err.type}`, `  message:${err.message}`, `  stack:${err.stack}`, `  traceId:${err.trace || null}`];
           fs.appendFile("./data/errors.log", `${prettyMsg.join("\r\n")}\r\n`);
@@ -54,21 +62,22 @@ await app.register(publicStatic, {
 });
 Plugin.errorResponse(app);
 Plugin.successResponse(app);
-Plugin.permissionCheck(app);
-Plugin.allowedMethod(app);
+Plugin.permissionCheck(app, { USERSMAP, PROFILEMAP, TOKENSMAP });
 Plugin.getToken(app);
 Plugin.routePacker(app);
 Plugin.handlePacker(app);
+Plugin.allowedContentType(app);
 Plugin.getIP(app, {
-  trustXRealIP: CONFIG.content.server.trustXRealIP,
+  trustXRealIP: CONFIG.server.trustXRealIP,
 });
 Plugin.rateLim(app, {
-  gap: CONFIG.content.server.keyReqRateLimit,
+  gap: CONFIG.server.keyReqRateLimit,
+  controller: ACCESSCONTROLLER,
 });
 
 app.setNotFoundHandler((requset, reply) => reply.replyError("NotFound", `Path not found: ${requset.url}`));
 
-if (CONFIG.content.privExtend.enableSwaggerUI) {
+if (CONFIG.privExtend.enableSwaggerUI) {
   await app.register(swagger, {
     swagger: {
       info: {
@@ -77,7 +86,7 @@ if (CONFIG.content.privExtend.enableSwaggerUI) {
         version: "1.0",
       },
       tags: [
-        { name: "ydddrasil", description: "Yggdrasil 服务端技术规范所规定的API" },
+        { name: "yggdrasil", description: "Yggdrasil 服务端技术规范所规定的API" },
         { name: "server", description: "便于管理验证服务端而定义的API" },
       ],
       externalDocs: {
@@ -98,6 +107,7 @@ if (CONFIG.content.privExtend.enableSwaggerUI) {
 }
 
 app.register(async (instance) => {
+  instance.decorateRequest("allowedContentType", null);
   instance.addHook("onRequest", async (_request, reply) => {
     reply.headers({
       "content-type": "application/json; charset=utf-8",
@@ -117,7 +127,7 @@ app.register(async (instance) => {
 });
 
 const result = await app.listen({
-  port: CONFIG.content.server.port,
-  host: CONFIG.content.server.host,
+  port: CONFIG.server.port,
+  host: CONFIG.server.host,
 });
-app.log.info(`yggdrasil 验证服务端: ${CONFIG.content.server.name} 正运行在 ${result}`);
+app.log.info(`yggdrasil 验证服务端: ${CONFIG.server.name} 正运行在 ${result}`);

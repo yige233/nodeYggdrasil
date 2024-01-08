@@ -1,6 +1,7 @@
 import { ProfileData, PublicProfileData, TextureData, TexturesData, model, uploadableTextures, uuid } from "./interfaces.js";
-import Utils, { PROFILEMAP, PROFILES, CONFIG, USERSMAP, PRIVATEKEY, ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse, JSONFile } from "./utils.js";
 import Textures from "./textures.js";
+import { CONFIG, PRIVATEKEY, PROFILEMAP, PROFILES, USERSMAP } from "../global.js";
 
 /** 角色 */
 export default class Profile implements ProfileData {
@@ -34,16 +35,17 @@ export default class Profile implements ProfileData {
    * @returns {Profile}
    */
   static async new(name: string, userId: uuid, offlineCompatible: boolean = true): Promise<Profile> {
-    Profile.nameCheck(name);
     if (!USERSMAP.has(userId)) {
       //指定的用户不存在
       throw new ErrorResponse("BadOperation", `Invalid userId: ${userId}`);
     }
     const user = USERSMAP.get(userId);
-    if (user.profiles.length > CONFIG.content.user.maxProfileCount) {
+    user.checkReadonly();
+    if (user.profiles.length > CONFIG.user.maxProfileCount) {
       //用户所拥有的角色太多
       throw new ErrorResponse("ForbiddenOperation", "The user have too much profile.");
     }
+    Profile.nameCheck(name);
     let id: uuid = offlineCompatible ? Utils.uuid(name) : Utils.uuid();
     if (PROFILEMAP.has(id)) {
       //该角色名称对应的离线uuid已经被他人占用，请尝试换一个名称或取消勾选兼容离线模式
@@ -62,15 +64,6 @@ export default class Profile implements ProfileData {
     await user.save();
     await profile.save();
     return profile;
-  }
-  /** 将json形式的角色数据转换为Map */
-  static buildMap(): Map<any, Profile> {
-    const map: Map<any, Profile> = Utils.arrMap();
-    for (const pid in PROFILES.content) {
-      const profile = PROFILES.content[pid];
-      map.set([profile.name, profile.id], new Profile(profile));
-    }
-    return map;
   }
   /**
    * 检查角色名称是否合法
@@ -93,6 +86,28 @@ export default class Profile implements ProfileData {
     return true;
   }
   /**
+   * 删除角色
+   * @param profileIds 角色id数组
+   */
+  static async deleteProfile(...profileIds: uuid[]) {
+    for (let profileId of profileIds) {
+      const profile = PROFILEMAP.get(profileId);
+      if (profile.owner && USERSMAP.has(profile.owner)) {
+        //如果该角色有所有者，从该所有者中删除该角色
+        const owner = USERSMAP.get(profile.owner);
+        owner.profiles.splice(
+          owner.profiles.findIndex((i) => i == profileId),
+          1
+        );
+        await owner.save();
+      }
+      await profile.setTexture("delete", { type: "all" });
+      delete PROFILES[profileId];
+      PROFILEMAP.delete(profileId);
+    }
+    await JSONFile.save(PROFILES);
+  }
+  /**
    * 设置角色绑定的材质
    * @param type 进行何种操作。mojang:从正版用户获取皮肤和披风; littleskin:从littleskin的皮肤库获取皮肤; upload:上传的皮肤; delete:删除皮肤
    * @param data profileName: 正版用户id; littleskinTid: littleskin的皮肤id; type:进行删除操作时，指定删除披风还是皮肤还是两者; upload.type: 上传的材质的类别(默认、细手臂、披风); upload.file: 材质文件
@@ -111,6 +126,7 @@ export default class Profile implements ProfileData {
       capeVisible?: boolean;
     }
   ): Promise<Profile> {
+    USERSMAP.get(this.owner).checkReadonly();
     if (type == "delete") {
       const textureType = ["skin", "cape", "all"].includes(data.type) ? data.type : "all";
       if (textureType == "all") {
@@ -185,7 +201,7 @@ export default class Profile implements ProfileData {
       if (textureModel != "cape") {
         textureType = "skin";
         skinData = {
-          url: `${CONFIG.content.server.root}yggdrasil/textures/${sha256}`,
+          url: `${CONFIG.server.root}yggdrasil/textures/${sha256}`,
           metadata: {
             model: textureModel == "default" ? "default" : "slim",
           },
@@ -193,8 +209,9 @@ export default class Profile implements ProfileData {
       } else {
         textureType = "cape";
         skinData = {
-          url: `${CONFIG.content.server.root}yggdrasil/textures/${sha256}`,
+          url: `${CONFIG.server.root}yggdrasil/textures/${sha256}`,
         };
+        this.capeVisible = true;
       }
       if (this.localRes[textureType]) {
         await Textures.remove(this.localRes[textureType], this.id);
@@ -209,32 +226,15 @@ export default class Profile implements ProfileData {
     await this.save();
     return this;
   }
-  /**
-   * 保存角色信息
-   * @param deleteFlag (默认: false) 该操作是否为删除该角色
-   */
-  async save(deleteFlag: boolean = false): Promise<void> {
+  /** * 保存角色信息 */
+  async save(): Promise<void> {
     PROFILEMAP.delete(this.id);
-    if (deleteFlag) {
-      //删除角色
-      delete PROFILES.content[this.id];
-      if (this.owner) {
-        //如果该角色有所有者，从该所有者中删除该角色
-        const owner = USERSMAP.get(this.owner);
-        owner.profiles.splice(
-          owner.profiles.findIndex((i) => i == this.id),
-          1
-        );
-        await owner.save();
-        PROFILEMAP.delete(this.id);
-      }
-    } else {
-      PROFILEMAP.set([this.name, this.id], this);
-      PROFILES.content[this.id] = this.export;
-    }
-    await PROFILES.save();
+    PROFILEMAP.set([this.name, this.id], this);
+    PROFILES[this.id] = this.export;
+    await JSONFile.save(PROFILES);
   }
   async setName(newName: string): Promise<Profile> {
+    USERSMAP.get(this.owner).checkReadonly();
     Profile.nameCheck(newName);
     this.name = newName;
     await this.save();
@@ -256,9 +256,9 @@ export default class Profile implements ProfileData {
     if (!this.capeVisible && textures.textures.CAPE) {
       delete textures.textures.CAPE;
     }
-    if (!textures.textures.SKIN && CONFIG.content.user.enableDefaultSkin) {
+    if (!textures.textures.SKIN && CONFIG.user.enableDefaultSkin) {
       textures.textures.SKIN = {
-        url: CONFIG.content.user.defaultSkin,
+        url: CONFIG.user.defaultSkin,
       };
     }
     const textureStr = Utils.encodeb64(JSON.stringify(textures));
@@ -270,12 +270,12 @@ export default class Profile implements ProfileData {
             {
               name: "textures",
               value: textureStr,
-              signature: signed ? Utils.makeSignature(textureStr, PRIVATEKEY.toString("utf8")) : undefined,
+              signature: signed ? Utils.makeSignature(textureStr, PRIVATEKEY) : undefined,
             },
             {
               name: "uploadableTextures",
               value: this.uploadableTextures,
-              signature: signed ? Utils.makeSignature(this.uploadableTextures, PRIVATEKEY.toString("utf8")) : undefined,
+              signature: signed ? Utils.makeSignature(this.uploadableTextures, PRIVATEKEY) : undefined,
             },
           ]
         : undefined,

@@ -1,6 +1,7 @@
+import { CONFIG, PROFILEMAP, TOKENSMAP, USERSMAP } from "../global.js";
 import { uuid, TokenStatus, PublicProfileData } from "./interfaces.js";
 import User from "./user.js";
-import Utils, { USERSMAP, TOKENSMAP, PROFILEMAP, CONFIG, ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse } from "./utils.js";
 
 /** 令牌 */
 export default class Token {
@@ -107,7 +108,7 @@ export default class Token {
       //指定了令牌所有者，但所有者不符
       return "invalid";
     }
-    const validityPeriod = CONFIG.content.user.tokenValidityPeriod;
+    const validityPeriod = CONFIG.user.tokenValidityPeriod;
     const now = new Date().getTime();
     if (now < this.issuedTime + validityPeriod * 36e5) {
       //当现在时间小于令牌颁发时间+过期时间，说明令牌有效或暂时失效
