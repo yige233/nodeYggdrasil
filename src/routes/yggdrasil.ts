@@ -473,6 +473,20 @@ const yggdrasil: RoutePackConfig = {
         },
       },
     },
+    {
+      url: "/minecraftservices/minecraft/profile/lookup/bulk/byname",
+      config: {
+        post: {
+          handler: ApiRoute.profiles,
+          schema: {
+            summary: "批量查询角色名称所对应的角色。可以使用角色uuid和角色名称。",
+            tags: ["yggdrasil"],
+            body: schemas.RequestProfilesQuery,
+            response: { 204: schemas.Response204.bad, 200: Packer.array("不包含角色属性")(schemas.PublicProfileData) },
+          },
+        },
+      },
+    },
   ],
 };
 export default yggdrasil;

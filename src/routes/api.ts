@@ -258,7 +258,9 @@ const users: RoutePackConfig = {
         } catch (err) {
           if (err instanceof ErrorResponse) {
             result.push({ error: err.error, errorMessage: err.errorMessage });
+            continue;
           }
+          throw err;
         }
       }
       return new SuccessResponse(result);

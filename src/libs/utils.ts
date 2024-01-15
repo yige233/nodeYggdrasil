@@ -117,6 +117,7 @@ export class ArrayMap<_K, V> extends Map<string[], V> {
   operate(method: "get" | "has" | "delete", key: string | string[]): any {
     let Truekey: string = key instanceof Array ? key[0] : key;
     for (let keyarr of this.keys()) {
+      if (!Truekey) return false;
       if (keyarr.some((i: string) => i.toLowerCase() === Truekey.toLowerCase())) {
         return super[method](keyarr);
       }
@@ -334,11 +335,8 @@ export class Plugin {
       return async function packedHandler(request: FastifyRequest, reply: FastifyReply) {
         try {
           if (request.validationError) {
-            const {
-              validationContext,
-              validation: { instancePath, keyword, message },
-            } = request.validationError;
-            throw new ErrorResponse("BadOperation", `Validation failed of the ${validationContext}: ${keyword} of ${instancePath} ${message}.`);
+            const { validationContext } = request.validationError;
+            throw new ErrorResponse("BadOperation", `Validation failed of the ${validationContext}.`);
           }
           const result = await handler(request, reply);
           if (result instanceof SuccessResponse) {
@@ -400,7 +398,7 @@ export class JSONFile {
    * @returns
    */
   static async read<T>(filePath: string): Promise<T> {
-    const content = await fs.readFile(filePath);
+    const content = await fs.readFile(filePath).catch(() => "{}");
     let data: T = JSON.parse(content.toString("utf-8"));
     data[JsonFilePath] = filePath;
     return data;

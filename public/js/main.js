@@ -123,6 +123,9 @@ class Render {
         inviteCode: inviteCode.value,
       });
       e.target.removeAttribute("disabled");
+      if (result instanceof ErrorResponse) {
+        return alert("注册失败。\n" + result.error);
+      }
       if (result[0].error) {
         return alert("注册失败。\n" + new ErrorResponse(result[0]).error);
       }
@@ -613,7 +616,9 @@ async function request(url, init) {
     method: (init?.method || "get").toUpperCase(),
     body: init?.body || null,
   });
-  const json = await result.json().catch(() => null);
+  const json = await result.json().catch(() => {
+    return { error: result.status, errorMessage: result.statusText };
+  });
   if (result.ok) {
     return json;
   }
