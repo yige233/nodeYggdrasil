@@ -109,20 +109,28 @@ export default class Profile implements ProfileData {
   }
   /**
    * 设置角色绑定的材质
-   * @param type 进行何种操作。mojang:从正版用户获取皮肤和披风; littleskin:从littleskin的皮肤库获取皮肤; upload:上传的皮肤; delete:删除皮肤
-   * @param data profileName: 正版用户id; littleskinTid: littleskin的皮肤id; type:进行删除操作时，指定删除披风还是皮肤还是两者; upload.type: 上传的材质的类别(默认、细手臂、披风); upload.file: 材质文件
-   * @returns {Profile}
+   * @param type 进行何种操作。
+   * @param data 操作需要的数据。
+   * @returns {Promise<Profile>}
    */
   async setTexture(
+    /** mojang: 从正版用户获取皮肤和披风; littleskin: 从littleskin的皮肤库获取皮肤; upload: 上传皮肤; delete: 删除皮肤 */
     type: "mojang" | "littleskin" | "upload" | "capeVisible" | "delete",
     data: {
+      /** 正版用户id */
       profileName?: string;
+      /** littleskin的皮肤id */
       littleskinTid?: string;
+      /** 指定删除披风还是皮肤还是两者 */
       type?: "skin" | "cape" | "all";
+      /** 上传皮肤 */
       upload?: {
+        /** 上传的材质的类别(默认、细手臂、披风) */
         type?: model | "cape";
+        /** 材质文件 */
         file: Buffer;
       };
+      /** 切换披风可见性 */
       capeVisible?: boolean;
     }
   ): Promise<Profile> {

@@ -419,6 +419,7 @@ export class AccessControl extends Map {
    * @returns {true}
    */
   test(name: string, rate: number = 100): boolean {
+    name = name.slice(32);
     const now: number = new Date().getTime(); //调用时，记录现在的时间
     if (!this.has(name)) {
       //首次调用，记录请求时长

@@ -1,5 +1,5 @@
 import path from "node:path";
-import Fastify, { FastifyInstance } from "fastify";
+import Fastify, { FastifyInstance, FastifyRequest } from "fastify";
 import publicStatic from "@fastify/static";
 import Ajv, { KeywordCxt } from "ajv";
 import swagger from "@fastify/swagger";
@@ -37,13 +37,13 @@ const app: FastifyInstance = Fastify({
     },
     customLevels: {
       /** 登录事件日志 */
-      login: 35
+      login: 35,
     },
     stream: {
       write(msg) {
         const { level, time, msg: message, err = null } = JSON.parse(msg);
         const date = new Date(time).toLocaleString();
-        if (level=="LOGIN") {
+        if (level == "LOGIN") {
           fs.appendFile("./data/logins.log", `[${date}] [${level}] ${message}\r\n`);
         }
         if (level == "ERROR") {
@@ -107,6 +107,9 @@ if (CONFIG.privExtend.enableSwaggerUI) {
 }
 
 app.register(async (instance) => {
+  instance.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, async function (_request: FastifyRequest, body: string) {
+    return body;
+  });
   instance.decorateRequest("allowedContentType", null);
   instance.addHook("onRequest", async (_request, reply) => {
     reply.headers({

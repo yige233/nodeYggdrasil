@@ -100,7 +100,7 @@ export class SessionserverRoute {
   static async hasJoined(request: FastifyRequest<{ Querystring: RequestHasJoined }>): Promise<SuccessResponse<PublicProfileData | undefined>> {
     const { username = null, serverId = null, ip = null }: RequestHasJoined = request.query;
     try {
-      const result = await Promise.any([Session.hasJoined(username, serverId, ip), Session.hasJoinedProxy(username, serverId, ip)]);
+      const result = await Promise.any([Session.hasJoined(username, serverId, ip), Session.hasJoinedProxy(request.getIP(), username, serverId, ip)]);
       return new SuccessResponse(result);
     } catch {
       return new SuccessResponse(undefined, 204);

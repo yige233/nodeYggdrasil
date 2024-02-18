@@ -332,6 +332,9 @@ const profile: RoutePackConfig = {
         }
       }
       if (type && ["mojang", "littleskin", "capeVisible", "delete"].includes(type)) {
+        if (["mojang", "littleskin"].includes(type)) {
+          request.rateLim(profile.id);
+        }
         //设置材质或删除材质
         await profile.setTexture(type, data);
       }

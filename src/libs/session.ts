@@ -1,8 +1,8 @@
 import net from "node:net";
 import { PublicProfileData, uuid } from "./interfaces.js";
 import Token from "./token.js";
-import Utils, {  ErrorResponse } from "./utils.js";
-import { CONFIG, PROFILEMAP, SESSIONMAP, TOKENSMAP } from "../global.js";
+import Utils, { ErrorResponse } from "./utils.js";
+import { ACCESSCONTROLLER, CONFIG, PROFILEMAP, SESSIONMAP, TOKENSMAP } from "../global.js";
 
 /** 会话 */
 export default class Session {
@@ -35,14 +35,14 @@ export default class Session {
       //不存在该serverid
       throw false;
     }
+    if (!PROFILEMAP.has(username)) {
+      //不存在的用户名称
+      throw false;
+    }
     const session = SESSIONMAP.get(serverId);
     if (new Date().getTime() > session.issuedTime + 3e4) {
       //该id对应的会话已过期（超过30秒）
       SESSIONMAP.delete(serverId);
-      throw false;
-    }
-    if (!PROFILEMAP.has(username)) {
-      //不存在的用户名称
       throw false;
     }
     const profile = PROFILEMAP.get(session.selectedProfile);
@@ -70,16 +70,21 @@ export default class Session {
   }
   /**
    * 对于正版登录，验证端起一个代理作用，向官方验证端验证会话有效性，实现兼容正版登录
+   * @param requestIP 请求来源IP地址，用于限制请求速度
    * @param serverId 要检查的serverId
    * @param username 用户名称
    * @param ip (可选) mc客户端ip地址
    * @returns {Promise<PublicProfileData>}
    */
-  static async hasJoinedProxy(username: string, serverId: string, ip?: string): Promise<PublicProfileData> {
+  static async hasJoinedProxy(requestIP: string, username: string, serverId: string, ip?: string): Promise<PublicProfileData> {
     const url = new URL(`https://sessionserver.mojang.com/session/minecraft/hasJoined?username=${username}&serverId=${serverId}`);
     if (!CONFIG.user.enableOfficialProxy || /[\u4e00-\u9fa5]/.test(username)) {
       //没有启用兼容正版验证，或者提供的用户名含有中文字符 (肯定过不了官方验证)
       throw false;
+    }
+    if (!ACCESSCONTROLLER.test(requestIP, CONFIG.server.keyReqRateLimit)) {
+      //限制请求速度
+      throw new ErrorResponse("ForbiddenOperation", "Operating too fast.");
     }
     if (ip) {
       //如果有需要验证ip
