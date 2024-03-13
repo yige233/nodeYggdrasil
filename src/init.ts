@@ -26,6 +26,7 @@ const config: Config = {
     trustXRealIP: false,
   },
   user: {
+    passwdHashType:"HMACsha256",
     defaultSkin: "http://textures.minecraft.net/texture/31f477eb1a7beee631c2ca64d06f8f68fa93a3386d04452ab27f43acdf1b60cb",
     enableDefaultSkin: false,
     tokenValidityPeriod: 336,

@@ -1,4 +1,4 @@
-import { USERSMAP, CONFIG, ACCESSCONTROLLER, PROFILEMAP, USERS } from "../global.js";
+import { USERSMAP, CONFIG, ACCESSCONTROLLER, PROFILEMAP, USERS, SALTS } from "../global.js";
 import { UserData, uuid, MinimumUserData, PublicProfileData, PublicUserData, PrivateUserData } from "./interfaces.js";
 import Profile from "./profile.js";
 import Token from "./token.js";
@@ -53,6 +53,7 @@ export default class User implements UserData {
   role: "admin" | "user" = "user";
   banned: number = 0;
   readonly: boolean = false;
+  salt: string;
   cert: {
     privkey: string;
     expiresAt: number;
@@ -65,6 +66,7 @@ export default class User implements UserData {
   constructor(data: Partial<UserData>) {
     this.username = data.username;
     this.password = data.password;
+    this.banned = data.banned;
     this.id = data.id;
     this.regTime = data.regTime || new Date().getTime();
     this.regIP = data.regIP;
@@ -72,14 +74,15 @@ export default class User implements UserData {
     this.extend = data.extend;
     this.readonly = data.readonly;
     this.nickName = data.nickName;
+    this.salt = SALTS[data.id] || undefined;
+    this.cert = data.cert || undefined;
+    this.profiles = data.profiles || [];
     this.properties = data.properties || [
       {
         name: "preferredLanguage",
         value: "zh_CN",
       },
     ];
-    this.cert = data.cert || undefined;
-    this.profiles = data.profiles || [];
   }
   /**
    * 用户注册
@@ -145,8 +148,8 @@ export default class User implements UserData {
       }
     }
     rawUsr.id = Utils.uuid();
-    rawUsr.password = Utils.sha256(password);
     const user = new User(rawUsr);
+    user.passwdHash(password).apply();
     user.extend.inviteCode = parseInt(
       crypto
         .createHash("shake256", { outputLength: 4 })
@@ -180,7 +183,7 @@ export default class User implements UserData {
       throw new ErrorResponse("ForbiddenOperation", "Wrong rescueCode.");
     }
     User.userInfoCheck(undefined, newPass, undefined, user);
-    user.password = Utils.sha256(newPass);
+    user.passwdHash(newPass).apply();
     user.rescueCode = null;
     await user.save();
     return new SuccessResponse(undefined, 204);
@@ -207,7 +210,7 @@ export default class User implements UserData {
       //用户已被封禁
       throw new ErrorResponse("ForbiddenOperation", `User is banned: ${username} . Expected to unban at ${new Date(user.banned).toLocaleString()}`);
     }
-    if (user.password != Utils.sha256(password)) {
+    if (!user.checkPasswd(password)) {
       //用户提供的密码错误
       throw new ErrorResponse("ForbiddenOperation", "Invalid credentials. Invalid username or password.");
     }
@@ -249,7 +252,7 @@ export default class User implements UserData {
         //密码太短
         throw new ErrorResponse("BadOperation", "The password provided is too short.");
       }
-      if (origin && Utils.sha256(password) == origin.password) {
+      if (origin && origin.checkPasswd(password)) {
         //新密码和旧密码相同
         throw new ErrorResponse("BadOperation", "The new password is the same as the old password.");
       }
@@ -266,7 +269,40 @@ export default class User implements UserData {
     USERSMAP.delete(this.id);
     USERSMAP.set([this.username, this.id, ...this.profiles], this);
     USERS[this.id] = this.export;
+    SALTS[this.id] = this.salt;
     await JSONFile.save(USERS);
+    await JSONFile.save(SALTS);
+  }
+  /**
+   * 计算密码hash值。
+   * @param input 输入
+   * @param salt 盐值。不提供则为随机生成。
+   */
+  passwdHash(input: string, salt = Utils.sha256(Utils.uuid())): { salt: string; hash: string; apply: () => void } {
+    if (!["sha256", "HMACsha256"].includes(CONFIG.user.passwdHashType)) {
+      throw new Error(`未知的 passwdHashType: ${CONFIG.user.passwdHashType}`);
+    }
+    let hash = Utils.sha256(input);
+    if (CONFIG.user.passwdHashType == "HMACsha256") {
+      hash = crypto.createHmac("sha256", salt).update(input).digest("hex");
+    }
+    return {
+      hash,
+      salt,
+      apply: () => {
+        this.password = hash;
+        this.salt = salt;
+      },
+    };
+  }
+  /**
+   * 检查密码是否有效。
+   * @param input 输入
+   * @returns {boolean}
+   */
+  checkPasswd(input: string): boolean {
+    const { hash: resultHash } = this.passwdHash(input, this.salt);
+    return resultHash == this.password;
   }
   /**
    * 修改用户信息
@@ -280,7 +316,7 @@ export default class User implements UserData {
     User.userInfoCheck(username, password, nickName, this);
     if (username) this.username = username;
     if (password) {
-      this.password = Utils.sha256(password);
+      this.passwdHash(password).apply();
       for (let token of this.tokens) {
         Token.invalidate(token);
       }
@@ -345,7 +381,8 @@ export default class User implements UserData {
    * @param duration (分钟。默认:60min) 封禁时长。多次封禁时长不累加。将此参数设为 0 可以视为执行了解除封禁
    */
   async ban(duration: number = 60) {
-    this.banned = new Date().getTime() + duration * 6e4;
+    const now = new Date().getTime();
+    this.banned = now + (duration > 0 ? duration : 0) * 6e4;
     this.signout();
     await this.save();
   }
@@ -382,7 +419,7 @@ export default class User implements UserData {
    * @param tokens 要注销的token。若不提供则为注销所有登录
    */
   signout(...tokens: uuid[]) {
-    for (let token of [...this.tokens].filter((i) => tokens.includes(i)) || this.tokens) {
+    for (let token of tokens.length > 0 ? [...this.tokens].filter((i) => tokens.includes(i)) : this.tokens) {
       Token.invalidate(token);
     }
   }
@@ -404,6 +441,7 @@ export default class User implements UserData {
       extend: this.extend,
       pubExtends: this.pubExtends,
       properties: this.properties,
+      salt: undefined,
     };
   }
   /** 导出对外暴露的用户信息 */

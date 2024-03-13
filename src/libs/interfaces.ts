@@ -44,6 +44,8 @@ export interface Config extends PublicConfig {
   };
   /** 用户相关 */
   user: {
+    /** 密码hash方式 */
+    passwdHashType: "HMACsha256" | "sha256";
     /** 默认皮肤 */
     defaultSkin: string;
     /** 是否启用默认皮肤(若禁用，无皮肤角色的profile里将不会包含默认皮肤的url) */
@@ -125,6 +127,8 @@ export interface UserData extends Required<PrivateUserData> {
   password: string;
   /** 用户的救援码 */
   rescueCode: string;
+  /** 用户的盐值 */
+  salt: string;
 }
 /** 私人可见的用户数据 */
 export interface PrivateUserData extends PublicUserData {
@@ -237,11 +241,6 @@ export interface PublicProfileData {
   name: string;
   /** 角色属性 */
   properties?: { name: string; value: string; signature?: string }[];
-}
-/** 材质目录 */
-export interface TextureIndex {
-  /** 材质的hash，对应使用该材质的profile的id */
-  [key: uuid]: uuid[];
 }
 /** 认证请求 */
 export interface RequestAuth {
@@ -411,7 +410,7 @@ declare module "fastify" {
     /**
      * 进行权限检查。默认只检查 Authorization 头是否有效
      * @param uuid 额外检查提供的 token 是否属于给定的用户
-     * @param profileId 额外检查提供的 token 是否拥有给定的角色，以及是否是该角色的所有者
+     * @param profileId 额外检查提供的 token 是否绑定至给定的角色，以及该令牌的所有者是否也是该角色的所有者
      * @param checkAdmin 额外检查该token所属的用户是否是管理员
      */
     permCheck: (uuid?: uuid, profileId?: uuid, checkAdmin?: boolean) => true;

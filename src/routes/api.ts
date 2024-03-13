@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { FastifyRequest } from "fastify";
 import Utils, { ErrorResponse, JSONFile, SuccessResponse } from "../libs/utils.js";
 import Profile from "../libs/profile.js";
@@ -95,7 +96,7 @@ const user: RoutePackConfig = {
   patch: {
     handler: async function (request: FastifyRequest<{ Params: { uuid: uuid }; Body: { operation: "modify" | "lock"; data: { username?: string; password?: string; nickName?: string } } }>) {
       const uuid: uuid = request.params.uuid,
-        { username = null, password = null, nickName = null } = request.body.data;
+        { username = null, password = null, nickName = null } = request.body.data || {};
       if (request.body.operation == "modify") {
         request.permCheck(uuid);
         const result = await USERSMAP.get(uuid).setUserInfo(username, password, nickName);
@@ -218,22 +219,58 @@ const user: RoutePackConfig = {
 const users: RoutePackConfig = {
   /** 可以通过用户账户查询用户信息 */
   get: {
-    handler: async (request: FastifyRequest<{ Querystring: { user: string } }>, reply) => {
-      const username = request.query.user;
-      if (USERSMAP.has(username)) {
-        reply.header("Location", `./user/${USERSMAP.get(username).id}`);
-        reply.status(302);
-        reply.send();
-        return false;
+    handler: async (request: FastifyRequest<{ Querystring: { user: string; after: string; count: number } }>, reply) => {
+      let { user: username, after, count = 10 } = request.query;
+      if (username) {
+        if (USERSMAP.has(username)) {
+          reply.header("Location", `./user/${USERSMAP.get(username).id}`);
+          reply.status(302);
+          reply.send();
+          return false;
+        }
+        throw new ErrorResponse("NotFound", `The queried user '${username}' is not found.`);
       }
-      throw new ErrorResponse("NotFound", `The queried user '${username}' is not found.`);
+      if (after) {
+        request.permCheck(undefined, undefined, true);
+        count = count > 0 ? count : 10;
+        const list = [];
+        if (count > 100) {
+          throw new ErrorResponse("BadOperation", "parameter 'count' should less than 100.");
+        }
+        if (USERSMAP.has(after)) {
+          after = USERSMAP.get(after).id;
+        } else {
+          const firstUser: User = USERSMAP.values().next().value;
+          after = firstUser.id;
+          list.push(firstUser.publicUserData);
+        }
+        for (let user of USERSMAP.values()) {
+          if (user.id == after) {
+            list.push(undefined);
+            continue;
+          }
+          if (list.length) {
+            if (list.filter((i) => i).length >= count) {
+              break;
+            }
+            list.push(user.publicUserData);
+            continue;
+          }
+        }
+        return new SuccessResponse(list.filter((i) => i));
+      }
+      throw new ErrorResponse("BadOperation", `missing required parameters: 'user' or 'after'.`);
     },
     schema: {
-      summary: "查询账户信息",
-      description: "通过'user'请求参数，来查找对应的用户。通过302重定向自动跳转到对应用户的信息api端点。",
+      summary: "查询用户信息",
+      description: "通过'user'请求参数，来查找对应的用户。通过302重定向自动跳转到对应用户的信息api端点。管理员可以通过提供'after'和'count'参数来查询用户列表。",
       tags: ["server"],
-      querystring: Packer.object()({ user: schemas.sharedVars.username }, "user"),
-      response: { 302: schemas.Response204.ok },
+      querystring: Packer.object()({
+        user: schemas.sharedVars.username,
+        after: Packer.string("接受以下输入：用户 id、用户账号(邮箱)、用户拥有的角色 id。若该参数无效，则默认为系统中首个用户的 id"),
+        count: Packer.number("指定获取的用户列表的长度，默认为 10，最大为 100"),
+      }),
+      response: { 302: schemas.Response204.ok, 200: Packer.array("查询命中的用户列表")(schemas.PublicUserData) },
     },
   },
   /** 注册新用户 */
@@ -324,10 +361,10 @@ const profile: RoutePackConfig = {
         //设置新的角色名称
         await profile.setName(name);
         for (let accessToken of USERSMAP.get(profile.owner).tokens) {
-          //吊销正在使用这个角色的所有token
+          //强制使绑定至该角色的所有令牌进入暂时失效状态
           const token = TOKENSMAP.get(accessToken);
-          if (token.profile && token.profile == profile.id && accessToken != request.getToken()) {
-            token.invalidate();
+          if (token.profile && token.profile == profile.id) {
+            token.forcedTvalid = true;
           }
         }
       }
@@ -467,6 +504,7 @@ const profiles: RoutePackConfig = {
   /** 新建角色 */
   put: {
     handler: async (request: FastifyRequest<{ Body: { name: string; offlineCompatible: boolean } }>) => {
+      request.permCheck();
       const accessToken: uuid = request.getToken();
       const { name, offlineCompatible = true } = request.body;
       const result = await Profile.new(name, TOKENSMAP.get(accessToken).owner.id, offlineCompatible);
@@ -539,15 +577,15 @@ const settings: RoutePackConfig = {
         }
       }
       request.permCheck(undefined, undefined, true);
-      let newConfig: Partial<Config> = request.body;
-      Utils.cleanObj(newConfig, { p: "server", c: ["host", "port", "root"] }, "privateKeyPath");
-      merge(CONFIG, request.body);
+      let newConfig: Partial<Config> = Object.assign({}, request.body);
+      Utils.cleanObj(newConfig, { p: "server", c: ["host", "port", "root"] }, "privateKeyPath", { p: "user", c: ["passwdHashType"] });
+      merge(CONFIG, newConfig);
       await JSONFile.save(CONFIG);
       return new SuccessResponse(CONFIG);
     },
     schema: {
       summary: "修改服务器配置和设置",
-      description: "不能修改以下项目：server.host, server.port, server.root, privateKeyPath。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
+      description: "不能修改以下项目：server.host, server.port, server.root, privateKeyPath, user.passwdHashType。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.sharedVars.authorization }, "authorization"),
       body: schemas.Config,
@@ -562,7 +600,7 @@ const bans: RoutePackConfig = {
     handler: async (request: FastifyRequest<{ Body: { target: string; duration: number } }>) => {
       request.permCheck(undefined, undefined, true);
       const { target, duration } = request.body;
-      if (!USERSMAP.has(target) || !PROFILEMAP.has(target)) {
+      if (!USERSMAP.has(target) && !PROFILEMAP.has(target)) {
         //该用户不存在
         throw new ErrorResponse("BadOperation", `Invalid user or profile.`);
       }
@@ -613,6 +651,26 @@ const inviteCode: RoutePackConfig = {
     },
   },
 };
+
+/** 登录日志 */
+const logins: RoutePackConfig = {
+  get: {
+    handler: async (request: FastifyRequest<{ Params: { logName: "logins" | "errors" } }>) => {
+      request.permCheck(undefined, undefined, true);
+      const content = await fs.readFile(`./data/${request.params.logName}.log`).catch(() => "");
+      return new SuccessResponse(content, 200, "text/plain;charset=UTF-8");
+    },
+    schema: {
+      summary: "查看服务器日志",
+      description: "管理员可以通过此API查看服务器的登录和错误日志。",
+      tags: ["server"],
+      params: Packer.object()({ logName: Packer.string("日志类型", "logins", "errors") }),
+      response: { 200: Packer.string("登录日志") },
+      produces: ["text/plain"],
+    },
+  },
+};
+
 const server: RoutePackConfig = {
   routes: [
     { url: "/sessions", config: sessions },
@@ -623,6 +681,7 @@ const server: RoutePackConfig = {
     { url: "/settings", config: settings },
     { url: "/bans", config: bans },
     { url: "/inviteCodes", config: inviteCode },
+    { url: "/logs/:logName", config: logins },
     {
       url: "/textures/:hash",
       config: {
@@ -639,6 +698,23 @@ const server: RoutePackConfig = {
       },
     },
   ],
+  post: {
+    handler: async (request: FastifyRequest<{ Body: { operation: "restart" } }>) => {
+      request.permCheck(undefined, undefined, true);
+      const { operation } = request.body;
+      if (operation == "restart") {
+        process.send({ operation });
+      }
+      return new SuccessResponse(undefined, 204);
+    },
+    schema: {
+      summary: "重新启动服务",
+      description: "管理员可以通过该API重启服务。不能通过该API得知重启是否完成。",
+      tags: ["server"],
+      body: Packer.object()({ operation: Packer.string("目前只有 restart 一个可选值。", "restart") }, "operation"),
+      response: { 204: schemas.Response204 },
+    },
+  },
 };
 
 export default server;

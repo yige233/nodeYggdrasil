@@ -93,7 +93,7 @@ const model = string("皮肤可使用的模型", "default", "slim"),
       proxyCount: number("服务端前面代理服务器的数量。如果存在 x-forwarded-for ，这个值决定了程序信任该头中的哪个ip"),
       register: string("验证服务器注册页"),
       root: string("验证服务器的根url，用于拼接材质url。 以斜杠(/)结尾。示例：https://auth.example.com/"),
-      trustXRealIP: string("是否信任 x-real-ip 头的值"),
+      trustXRealIP: boolean("是否信任 x-real-ip 头的值"),
     }),
     skinDomains: array("材质域名白名单")(string("域名、IP地址")),
     user: object("用户相关")({
@@ -106,6 +106,7 @@ const model = string("皮肤可使用的模型", "default", "slim"),
       inviteCodes: array("验证服务器公共注册邀请码。留空则视为不启用")(string("邀请码字符串")),
       passLenLimit: number("用户密码长度限制"),
       tokenValidityPeriod: number("令牌过期时间(小时)"),
+      passwdHashType:string("用户密码hash方式","HMACsha256","sha256")
     }),
   }),
   PublicConfig = object("公开可见的服务器配置")({

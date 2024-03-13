@@ -41,8 +41,8 @@ export class AuthserverRoute {
       //使用角色名称登录成功，令牌绑定至该角色
       profile = PROFILEMAP.get(username);
     }
-    request.log.login(`用户 ${result.username} (内部ID: ${result.id} ) 登录成功${profile ? `，登录令牌绑定至 ${profile.name}` : ""}。登录IP地址: ${request.getIP()}`);
     const token = new Token(clientToken ? clientToken : Utils.uuid(), result.id, profile?.id);
+    request.log.login(`用户 ${result.username} (内部ID: ${result.id} ) 登录成功${token.profile ? `，登录令牌绑定至 ${PROFILEMAP.get(token.profile).name}` : ""}。登录IP地址: ${request.getIP()}`);
     const responseData: ResponseAuth = {
       accessToken: token.accessToken,
       clientToken: token.clientToken,

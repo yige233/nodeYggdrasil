@@ -378,11 +378,16 @@ export class ErrorResponse {
 export class SuccessResponse<T> {
   data: T;
   code: number;
-  constructor(data: any, code: number = 200) {
+  type: string;
+  constructor(data: any, code: number = 200, type?) {
     this.data = data;
     this.code = code;
+    this.type = type || undefined;
   }
   response(reply: FastifyReply) {
+    if (this.type) {
+      reply.type(this.type);
+    }
     reply.replySuccess(this.data, this.code);
   }
 }

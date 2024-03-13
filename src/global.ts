@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import fs from "node:fs/promises";
-import { Config, uuid, UserData, ProfileData, TextureIndex } from "./libs/interfaces.js";
+import { Config, uuid, UserData, ProfileData } from "./libs/interfaces.js";
 import Profile from "./libs/profile.js";
 import Session from "./libs/session.js";
 import Token from "./libs/token.js";
@@ -12,12 +12,14 @@ import { JSONFile, AccessControl, ArrayMap } from "./libs/utils.js";
 export const CONFIG = await JSONFile.read<Config>("./data/config.json").catch((e) => {
   throw new Error("读取配置文件失败: " + e.message);
 });
-/** 用户数据，可存储到json文件 */
+/** 用户数据件 */
 export const USERS = await JSONFile.read<{ [key: uuid]: UserData }>("./data/users.json");
-/** 角色数据，可存储到json文件 */
+/** 用户的盐值 */
+export const SALTS = await JSONFile.read<{ [key: uuid]: string }>("./data/salts.json");
+/** 角色数据 */
 export const PROFILES = await JSONFile.read<{ [key: uuid]: ProfileData }>("./data/profiles.json");
 /** 材质目录 */
-export const TEXTURES = await JSONFile.read<TextureIndex>("./data/textures.json");
+export const TEXTURES = await JSONFile.read<{[key: uuid]: uuid[]}>("./data/textures.json");
 /** 私钥数据 */
 export const PRIVATEKEY = await fs
   .readFile(CONFIG.privateKeyPath)

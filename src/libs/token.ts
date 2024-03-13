@@ -15,6 +15,8 @@ export default class Token {
   readonly issuedTime: number;
   /** 使用该令牌的用户 */
   readonly owner: User;
+  /** 该令牌是否强制暂时失效 */
+  forcedTvalid: boolean;
   /**
    * 实例化一个令牌
    * @param accessToken
@@ -28,6 +30,7 @@ export default class Token {
     this.clientToken = clientToken;
     this.owner = user;
     this.issuedTime = new Date().getTime();
+    this.forcedTvalid = false;
     if (user.profiles.length == 1) this.profile = user.profiles[0];
     if (profile) this.profile = profile;
     TOKENSMAP.set(accessToken, this);
@@ -107,6 +110,10 @@ export default class Token {
     if (owner && owner != this.owner.id) {
       //指定了令牌所有者，但所有者不符
       return "invalid";
+    }
+    if (this.forcedTvalid) {
+      //令牌被设置为强制暂时失效状态
+      return "Tvalid";
     }
     const validityPeriod = CONFIG.user.tokenValidityPeriod;
     const now = new Date().getTime();
