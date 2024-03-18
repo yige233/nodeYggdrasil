@@ -273,7 +273,7 @@ class ProfileInfoElem extends BaseElem {
     let order = 0;
     const viewer = new skinview3d.SkinViewer({
       canvas: canvas,
-      width: 450,
+      width: window.innerWidth > 500 ? 500 : window.innerWidth * 0.9,
       height: 500,
       zoom: 0.8,
       nameTag: name,
@@ -918,9 +918,13 @@ async function request(url, init) {
 
 async function lockBtn(btn, promise, ...params) {
   btn.setAttribute("disabled", "disabled");
-  const result = await promise(...params).catch((err) => err);
-  btn.removeAttribute("disabled");
-  return result;
+  try {
+    return await promise(...params);
+  } catch (err) {
+    console.log("Error:", err);
+  } finally {
+    btn.removeAttribute("disabled");
+  }
 }
 
 (function defineElem(prefix = "custom") {

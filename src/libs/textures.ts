@@ -7,7 +7,10 @@ import { CONFIG, TEXTURES } from "../global.js";
 function readPNGMeta(imageData: Buffer): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const png = new PNG();
-    png.on("error", (err) => reject(err));
+    png.on("error", (err) => {
+      png.destroy();
+      reject(err);
+    });
     png.on("metadata", (metadata) => {
       resolve({ width: metadata.width, height: metadata.height });
       png.destroy();

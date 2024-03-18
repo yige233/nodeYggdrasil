@@ -563,6 +563,7 @@ const settings: RoutePackConfig = {
     handler: async (request) => {
       function merge(source: Config, newConfig: Partial<Config>) {
         for (const key in newConfig) {
+          if (!newConfig.hasOwnProperty(key)) continue;
           if (source[key] instanceof Array && newConfig[key] instanceof Array) {
             source[key] = newConfig[key].filter((i: any): boolean => typeof i == "string");
             continue;
@@ -571,7 +572,7 @@ const settings: RoutePackConfig = {
             merge(source[key], newConfig[key]);
             continue;
           }
-          if (typeof source[key] == typeof newConfig[key]) {
+          if (typeof source[key] === typeof newConfig[key] && source[key] !== null && newConfig[key] !== null) {
             source[key] = newConfig[key];
           }
         }
