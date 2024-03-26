@@ -10,6 +10,16 @@
   font-family: "Minecraft";
   src: url("../font/minecraft.woff2") format("woff2");
 }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --info-color: lightgreen;
+  }
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --info-color: darkgreen;
+  }
+}
 .item-l1 > div:nth-child(2) > div {
   text-indent: 2em;
 }
@@ -47,7 +57,7 @@ button.danger {
   content: "ℹ️";
 }
 .info {
-  color: darkgreen;
+  color: var(--info-color);
   font-size: 14px;
   white-space: pre-line;
 }
@@ -64,7 +74,7 @@ button {
 .appear {
   animation: appear 0.3s linear 0s 1 normal forwards;
 }
-.query-result-container {
+.card-container {
   background-color: var(--bg);
   padding: 0.5rem;
   max-height: 20rem;
@@ -73,10 +83,10 @@ button {
   grid-template-columns: 1fr 1fr;
   min-height: 10rem;
 }
-.query-result-container > * {
+.card-container > * {
   background-color: var(--accent-bg);
   margin: 0.5rem;
 }
-.query-result-container > button {
+.card-container > button {
   color: var(--text);
 }

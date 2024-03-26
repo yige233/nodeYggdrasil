@@ -125,14 +125,22 @@ class BaseElem extends HTMLElement {
     this[rendered] = true;
     this.classList.toggle("appear");
     this.addEventListener("animationend", () => this.classList.toggle("appear"));
-    this.attributeChangedCallback();
+    this.attributeChangedCallback("attr-changed");
   }
-  attributeChangedCallback() {
+  attributeChangedCallback(name) {
     //当元素的被监视的属性发生变化时，就会调用该方法。
     if (!this[rendered]) return;
     const attrs = {};
-    for (let name of this.constructor.observedAttributes || []) {
+    const observedAttr = this.constructor.observedAttributes || [];
+    for (let name of observedAttr) {
       attrs[name] = this.getAttribute(name);
+    }
+    if (observedAttr.includes("attr-changed")) {
+      //如果被监视属性包含attr-changed，则仅在该属性发生变化时重新渲染
+      if (name == "attr-changed") {
+        return this.attrRender({ ...attrs });
+      }
+      return;
     }
     this.attrRender({ ...attrs });
   }
@@ -144,11 +152,13 @@ class BaseElem extends HTMLElement {
   }
   setAttributes({ ...attributes }) {
     for (let name in attributes || {}) {
-      if (Object.is(attributes[name], null)) {
-        this.removeAttribute(name);
+      if (attributes[name] && attributes[name] !== "attr-changed") {
+        this.setAttribute(name, attributes[name] || "");
+        continue;
       }
-      attributes[name] && this.setAttribute(name, attributes[name] || "");
+      this.removeAttribute(name);
     }
+    if ((this.constructor.observedAttributes || []).includes("attr-changed")) this.setAttribute("attr-changed", Math.random());
   }
   async render() {}
   async attrRender() {}
@@ -175,14 +185,14 @@ class UserInfoElem extends BaseElem {
     super("#t-user");
   }
   static get observedAttributes() {
-    return ["username", "nickName", "role", "regTime", "inviteCode", "id", "regIP"];
+    return ["username", "nick-name", "role", "reg-time", "invite-code", "id", "reg-ip"];
   }
   render() {
     const [btnA, btnB] = this.getAllElem("button");
     const [newUsername, newNickName, newPassword, newPasswordAgain] = this.getAllElem("input");
     btnA.addEventListener("click", async (e) => {
       if (newPassword.value != newPasswordAgain.value) {
-        return alert("两次输入的密码不一致");
+        return new Notify("不能进行该操作", "两次输入的密码不一致");
       }
       const result = await lockBtn(e.target, (...p) => user.editUserInfo(...p), {
         username: newUsername.value,
@@ -190,18 +200,20 @@ class UserInfoElem extends BaseElem {
         nickName: newNickName.value,
       });
       if (result instanceof ErrorResponse) {
-        return alert("修改个人信息失败。\n" + result.error);
+        return new Notify("个人信息修改失败", result.error);
       }
       this.setAttributes({ ...result });
     });
     btnB.addEventListener("click", async (e) => {
-      user.logout().then(() => {
-        alert("已注销当前会话");
-        window.location.reload();
-      });
+      await await lockBtn(e.target, () => user.logout());
+      const noti = new Notify("已注销当前会话，稍后网页将自动刷新");
+      user.info();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      noti.close();
+      window.location.reload();
     });
   }
-  attrRender({ username, nickName, role, regTime, inviteCode, id, regIP }) {
+  attrRender({ username, "nick-name": nickName, role, "reg-time": regTime, "invite-code": inviteCode, id, "reg-ip": regIP }) {
     const slots = this.getAllElem("strong");
     slots[0].textContent = role == "admin" ? "管理员" : "普通用户";
     slots[1].textContent = new Date(Number(regTime)).toLocaleString();
@@ -212,7 +224,7 @@ class UserInfoElem extends BaseElem {
     slots[6].textContent = inviteCode;
   }
   setAttributes({ username, nickName = username, id, role, regTime, regIP, extend: { inviteCode } }) {
-    super.setAttributes({ username, nickName, role, regTime, regIP, inviteCode, id });
+    super.setAttributes({ username, "nick-name": nickName, role, "reg-time": regTime, "reg-ip": regIP, "invite-code": inviteCode, id });
   }
 }
 class ProfileInfoElem extends BaseElem {
@@ -220,7 +232,7 @@ class ProfileInfoElem extends BaseElem {
     super("#t-profile-info");
   }
   static get observedAttributes() {
-    return ["name", "id", "skin", "cape", "model"];
+    return ["name", "id", "skin", "cape", "model", "attr-changed"];
   }
   render() {
     const btns = this.getAllElem("button");
@@ -234,16 +246,17 @@ class ProfileInfoElem extends BaseElem {
         type: deleteType.value,
       });
       if (result instanceof ErrorResponse) {
-        return alert("角色信息修改失败。\n" + result.error);
+        return new Notify("角色信息修改失败", result.error);
       }
       this.setAttributes({ ...result });
     });
     btns[1].addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.uploadFile(this.getAttribute("id"), textureType.value, uploadFile.files[0] || undefined));
       if (result instanceof ErrorResponse) {
-        return alert("材质上传失败。\n" + result.error);
+        return new Notify("材质上传失败", result.error);
       }
-      alert("材质上传成功。");
+      new Notify("材质上传成功");
+      this.setAttributes({ ...result });
     });
     btns[2].addEventListener("click", async (e) => {
       if (!confirm("你真的要删除这个角色吗？")) {
@@ -251,13 +264,24 @@ class ProfileInfoElem extends BaseElem {
       }
       const result = await lockBtn(e.target, () => user.deleteProfile(this.getAttribute("id")));
       if (result instanceof ErrorResponse) {
-        return alert("删除角色失败。\n" + result.error);
+        return new Notify("角色删除失败", result.error);
       }
+      new Notify("角色删除成功");
       this.classList.toggle("disappear");
       this.addEventListener("animationend", this.remove);
     });
   }
-  attrRender({ name, id, skin, cape, model }) {
+  async attrRender({ name, id, skin, cape, model }) {
+    async function load(name, url) {
+      try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (e) {
+        console.error(`加载${name}(${url})失败: ${e}`);
+        return undefined;
+      }
+    }
     const slots = this.getAllElem("strong");
     const canvas = this.getElem("canvas");
     slots[0].textContent = name;
@@ -271,14 +295,16 @@ class ProfileInfoElem extends BaseElem {
     canvas.style = "display:block";
     const animations = [new skinview3d.IdleAnimation(), new skinview3d.WalkingAnimation(), new skinview3d.RunningAnimation(), new skinview3d.FlyingAnimation(), null];
     let order = 0;
+    const skinData = await load("皮肤", skin);
+    const capeData = cape ? await load("披风", cape) : undefined;
     const viewer = new skinview3d.SkinViewer({
       canvas: canvas,
       width: window.innerWidth > 500 ? 500 : window.innerWidth * 0.9,
       height: 500,
       zoom: 0.8,
       nameTag: name,
-      skin,
-      cape,
+      skin: skinData,
+      cape: capeData,
       model,
     });
     canvas.addEventListener("contextmenu", (e) => {
@@ -297,9 +323,25 @@ class ProfileInfoElem extends BaseElem {
       }
     });
   }
-  setAttributes({ name, properties: [{ value }], id }) {
-    const { CAPE = {}, SKIN = {} } = JSON.parse(Base64.decode(value)).textures;
-    super.setAttributes({ name, skin: SKIN.url, cape: CAPE.url || null, id, model: SKIN.metadata?.model || null });
+  setAttributes({ name, properties, id }) {
+    const attrs = { name, skin: null, cape: null, id, model: undefined };
+    if (properties && Array.isArray(properties)) {
+      for (const prop of properties) {
+        const { name: propName, value } = prop;
+        if (propName == "textures") {
+          try {
+            const data = JSON.parse(Base64.decode(value));
+            const { CAPE = {}, SKIN = {} } = data.textures;
+            attrs.skin = SKIN.url;
+            attrs.model = SKIN.metadata?.model;
+            attrs.cape = CAPE.url;
+          } catch (e) {
+            console.error("解析角色材质失败:", e);
+          }
+        }
+      }
+    }
+    super.setAttributes(attrs);
   }
 }
 class newProfileElem extends BaseElem {
@@ -311,7 +353,7 @@ class newProfileElem extends BaseElem {
     this.getElem("button").addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, (...p) => user.newProfile(...p), newProfileName.value, offlineCompatible.checked);
       if (result instanceof ErrorResponse) {
-        return alert("新建角色失败。\n" + result.error);
+        return new Notify("新建角色失败", result.error);
       }
       const profileElem = document.createElement("y-profile-info");
       profileElem.setAttributes({ ...result });
@@ -326,15 +368,19 @@ class RescueElem extends BaseElem {
   }
   render() {
     this.getElem("button").addEventListener("click", async (e) => {
+      function alert() {
+        if (navigator.clipboard) navigator.clipboard.writeText(window.rescueCode);
+        return new Notify("以下是你的救援代码", window.rescueCode, navigator.clipboard && "代码已复制到剪贴板。", "注意：刷新网页后，将无法再次显示救援代码。");
+      }
       if (window.rescueCode) {
-        return alert("你的救援代码是: " + window.rescueCode + " 。注意：刷新网页后，将无法再次显示救援代码。");
+        return alert();
       }
       const result = await lockBtn(e.target, () => user.getUserRescueCode());
       if (result instanceof ErrorResponse) {
-        return alert("获取救援代码失败。\n" + result.error);
+        return new Notify("获取救援代码失败", result.error);
       }
       window.rescueCode = result.rescueCode;
-      alert("你的救援代码是: " + result.rescueCode + " 。注意：刷新网页后，将无法再次显示救援代码。");
+      alert();
     });
   }
 }
@@ -343,33 +389,47 @@ class DangerOpElem extends BaseElem {
     super("#t-user-danger");
   }
   render() {
-    const [usernameInput, passwdInput, passwdAgainInput] = this.getAllElem("input");
-    const [btnLock, btnDelete] = this.getAllElem("button");
+    const [username, password, passwdAgain] = this.getAllElem("input");
+    const [btnLogoutAll, btnLock, btnDelete] = this.getAllElem("button");
+    btnLogoutAll.addEventListener("click", async (e) => {
+      if (!confirm("你真的要注销账号的所有登录会话吗？")) {
+        return;
+      }
+      if (!password.value || password.value != [passwdAgain.value]) {
+        return new Notify("不能进行该操作", "输入的密码为空，或两次输入的密码不一致");
+      }
+      const result = await lockBtn(e.target, () => user.logoutAll(username.value, password.value));
+      if (result instanceof ErrorResponse) {
+        return new Notify("操作失败", result.error);
+      }
+      new Notify("已注销本账户的所有会话");
+      window.location.reload();
+    });
     btnLock.addEventListener("click", async (e) => {
       if (!confirm("你真的要锁定账户吗？")) {
         return;
       }
-      if (passwdInput.value != [passwdAgainInput.value]) {
-        return alert("两次输入的密码不一致");
+      if (!password.value || password.value != [passwdAgain.value]) {
+        return new Notify("不能进行该操作", "输入的密码为空，或两次输入的密码不一致");
       }
-      const result = await lockBtn(e.target, () => user.lockUser(usernameInput.value, passwdInput.value));
+      const result = await lockBtn(e.target, () => user.lockUser(username.value, password.value));
       if (result instanceof ErrorResponse) {
-        return alert("锁定用户失败。\n" + result.error);
+        return new Notify("锁定用户失败", result.error);
       }
-      alert("用户已经被锁定。");
+      new Notify("用户已经被锁定");
     });
     btnDelete.addEventListener("click", async (e) => {
       if (!confirm("你真的要删除账户吗？")) {
         return;
       }
-      if (passwdInput.value != [passwdAgainInput.value]) {
-        return alert("两次输入的密码不一致");
+      if (!password.value || password.value != [passwdAgain.value]) {
+        return new Notify("不能进行该操作", "输入的密码为空，或两次输入的密码不一致");
       }
-      const result = await lockBtn(e.target, () => user.deleteUser(usernameInput.value, passwdInput.value));
+      const result = await lockBtn(e.target, () => user.deleteUser(username.value, password.value));
       if (result instanceof ErrorResponse) {
-        return alert("删除用户失败。\n" + result.error);
+        return new Notify("删除用户失败", result.error);
       }
-      alert("用户已经被删除。");
+      new Notify("用户已经被删除");
       window.location.reload();
     });
   }
@@ -383,9 +443,9 @@ class AdminBanUserElem extends BaseElem {
     this.getElem("button").addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.ban(targetToBan.value, duration.value));
       if (result instanceof ErrorResponse) {
-        return alert("未能封禁用户。\n" + result.error);
+        return new Notify("未能封禁用户", result.error);
       }
-      alert(`已封禁用户：${result.nickName}\n预计解封时间：${new Date(result.banned).toLocaleString()}`);
+      new Notify(`已封禁用户：${result.nickName}`, `预计解封时间：${new Date(result.banned).toLocaleString()}`);
     });
   }
 }
@@ -395,31 +455,46 @@ class AdminNewUserElem extends BaseElem {
   }
   render() {
     const [usercacheFile, suffix, inviteCode] = this.getAllElem("input");
+    const container = this.getElem(".card-container");
+    usercacheFile.addEventListener("change", async function () {
+      const list = new Set();
+      container.innerHTML = "";
+      if (!this.files[0]) {
+        return;
+      }
+      const usercache = await fetch(URL.createObjectURL(new Blob([this.files[0]], { type: "application/json" }))).then((res) => res.json());
+      if (!Array.isArray(usercache)) {
+        return;
+      }
+      usercache.forEach((i) => list.add(i.name));
+      for (const name of list) {
+        const card = document.createElement("y-usercache-info-card");
+        card.setAttributes({ username: name + (suffix.value || "@minecraft.mc"), password: name + "1234567" });
+        container.append(card);
+      }
+    });
     this.getElem("button").addEventListener("click", async (e) => {
       const list = [];
-      if (!usercacheFile.files[0]) {
-        return alert("请提供usercache.json。");
-      }
-      const usercache = await fetch(URL.createObjectURL(new Blob([usercacheFile.files[0]], { type: "application/json" }))).then((res) => res.json());
-      if (!Array.isArray(usercache)) {
-        return alert("请提供正确的usercache.json。");
-      }
-      for (const user of usercache) {
-        const { name = null } = user;
-        if (!name) continue;
+      const cards = container.children;
+      for (const card of cards) {
+        const username = card.getAttribute("username");
+        const password = card.getAttribute("password");
+        if (!username) continue;
         list.push({
-          username: name + suffix.value || "@minecraft.mc",
-          password: name + "1234567",
-          nickName: name,
+          username,
+          password,
+          nickName: username,
           inviteCode: inviteCode.value,
         });
       }
-      const result = await lockBtn(e.target, () => user.registerBatch(...list));
-      alert("即将打开批量注册的结果。");
-      const blob = new Blob([JSON.stringify(result, null, 2)], {
-        type: "application/json",
-      });
-      window.open(URL.createObjectURL(blob), "_blank");
+      const results = await lockBtn(e.target, () => user.registerBatch(...list));
+      for (let i in results) {
+        if (results[i].error) {
+          cards[i].setAttribute("status", new ErrorResponse(results[i]).error);
+        } else {
+          cards[i].setAttribute("status", "done");
+        }
+      }
     });
   }
 }
@@ -431,7 +506,7 @@ class AdminInviteCodeElem extends BaseElem {
     this.getElem("button").addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.getInviteCode(this.getElem("input").value));
       if (result instanceof ErrorResponse) {
-        return alert("获取邀请码失败。\n" + result.error);
+        return new Notify("获取邀请码失败", result.error);
       }
       this.getElem("textarea").innerText = result.join("\n");
     });
@@ -449,7 +524,7 @@ class AdminSettingsElem extends BaseElem {
     edit.addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.settings(JSON.parse(this.getElem("textarea").value)));
       if (result instanceof ErrorResponse) {
-        return alert("修改服务器设置失败。\n" + result.error);
+        return new Notify("修改服务器设置失败", result.error);
       }
       this.setAttributes({ ...result });
       document.querySelector("y-header").setAttributes({ ...result });
@@ -457,9 +532,9 @@ class AdminSettingsElem extends BaseElem {
     restart.addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.restart()).catch(() => null);
       if (result instanceof ErrorResponse) {
-        return alert("发送重启指令失败。\n" + result.error);
+        return new Notify("发送重启指令失败", result.error);
       }
-      alert("已向服务器发送重启指令。");
+      new Notify("已向服务器发送重启指令");
     });
   }
   attrRender({ settings }) {
@@ -477,7 +552,7 @@ class AdminQueryLogElem extends BaseElem {
     this.getElem("button").addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => user.queryLogs(this.getElem("select").value));
       if (result instanceof ErrorResponse) {
-        return alert("查询日志失败。\n" + result.error);
+        return new Notify("查询日志失败", result.error);
       }
       this.getElem("textarea").value = result;
     });
@@ -488,11 +563,16 @@ class LoginElem extends BaseElem {
     super("#t-login");
   }
   render() {
-    const [usernameLogin, passwordLogin] = this.getAllElem("input");
+    const [username, password] = this.getAllElem("input");
+    password.addEventListener("keydown", (e) => {
+      if (e.key == "Enter") {
+        this.getElem("button").click();
+      }
+    });
     this.getElem("button").addEventListener("click", async (e) => {
-      const result = await lockBtn(e.target, () => User.login(usernameLogin.value, passwordLogin.value));
+      const result = await lockBtn(e.target, () => User.login(username.value, password.value));
       if (result instanceof ErrorResponse) {
-        return alert("登录失败。\n" + result.error);
+        return new Notify("登录失败", result.error);
       }
       user.info(result.accessToken, result.uuid);
       return User.init(true);
@@ -506,8 +586,8 @@ class NewUserElem extends BaseElem {
   render() {
     const [username, nickName, password, passwordAgain, inviteCode] = this.getAllElem("input");
     this.getElem("button").addEventListener("click", async (e) => {
-      if (password.value != passwordAgain.value) {
-        return alert("两次输入的密码不一致");
+      if (!password.value || password.value != passwordAgain.value) {
+        return new Notify("注册失败", "输入的密码为空，或两次输入的密码不一致");
       }
       const result = await lockBtn(e.target, (...p) => User.register(...p), {
         username: username.value,
@@ -516,12 +596,17 @@ class NewUserElem extends BaseElem {
         inviteCode: inviteCode.value,
       });
       if (result instanceof ErrorResponse) {
-        return alert("注册失败。\n" + result.error);
+        return new Notify("注册失败", result.error);
       }
       if (result[0].error) {
-        return alert("注册失败。\n" + new ErrorResponse(result[0]).error);
+        return new Notify("注册失败", new ErrorResponse(result[0]).error);
       }
-      alert("注册成功，现在可以登录了。");
+      const loginRresult = await lockBtn(e.target, () => User.login(username.value, password.value));
+      if (loginRresult instanceof ErrorResponse) {
+        return new Notify("登录失败", result.error);
+      }
+      user.info(loginRresult.accessToken, loginRresult.uuid);
+      return User.init(true);
     });
   }
 }
@@ -530,16 +615,16 @@ class ResetPassElem extends BaseElem {
     super("#t-reset-pass");
   }
   render() {
-    const [usernameReset, rescueCode, passwordReset, passwordResetAgain] = this.getAllElem("input");
+    const [username, rescueCode, password, passwordAgain] = this.getAllElem("input");
     this.getElem("button").addEventListener("click", async (e) => {
-      if (passwordReset.value != passwordResetAgain.value) {
-        return alert("两次输入的密码不一致");
+      if (!password.value || password.value != passwordAgain.value) {
+        return new Notify("重置密码失败", "输入的密码为空，或两次输入的密码不一致");
       }
-      const result = await lockBtn(e.target, () => User.resetPass(usernameReset.value, rescueCode.value, passwordReset.value));
-      if (result?.error) {
-        return alert("重置密码失败。\n" + new ErrorResponse(result).error);
+      const result = await lockBtn(e.target, () => User.resetPass(username.value, rescueCode.value, password.value));
+      if (result.error) {
+        return new Notify("重置密码失败", result.error);
       }
-      alert("密码重置成功。");
+      return new Notify("密码重置成功。");
     });
   }
 }
@@ -548,9 +633,9 @@ class UserInfoCardElem extends BaseElem {
     super("#t-user-info-card");
   }
   static get observedAttributes() {
-    return ["nickName", "id", "role", "regTime", "banned"];
+    return ["nick-name", "id", "role", "reg-time", "banned"];
   }
-  attrRender({ nickName, id, role, regTime, banned }) {
+  attrRender({ "nick-name": nickName, id, role, "reg-time": regTime, banned }) {
     const slots = this.getAllElem("strong");
     const ban = Number(banned);
     slots[0].textContent = id;
@@ -560,7 +645,7 @@ class UserInfoCardElem extends BaseElem {
     slots[4].textContent = ban > 0 ? `${ban > new Date().getTime() ? "正在封禁中" : "曾被封禁"}，封禁持续至${new Date(ban).toLocaleString()}` : "没有被封禁过";
   }
   setAttributes({ nickName, id, role, regTime, banned }) {
-    super.setAttributes({ nickName, id, role, regTime, banned });
+    super.setAttributes({ "nick-name": nickName, id, role, "reg-time": regTime, banned });
   }
 }
 class QueryUserElem extends BaseElem {
@@ -571,11 +656,11 @@ class QueryUserElem extends BaseElem {
     const [query, adminQuery] = this.getAllElem("button");
     const loadMoreBtn = document.createElement("button");
     loadMoreBtn.textContent = "查看更多";
-    const container = this.getElem(".query-result-container");
+    const container = this.getElem(".card-container");
     async function loadMore(after = 0) {
       const result = await lockBtn(loadMoreBtn, () => user.queryUsers(after, 10));
       if (result instanceof ErrorResponse) {
-        return alert("查询用户失败。\n" + result.error);
+        return new Notify("查询用户失败", result.error);
       }
       if (result.length == 0) {
         return loadMoreBtn.remove();
@@ -591,7 +676,7 @@ class QueryUserElem extends BaseElem {
     query.addEventListener("click", async (e) => {
       const result = await lockBtn(e.target, () => User.queryUser(this.getElem("input").value));
       if (result instanceof ErrorResponse) {
-        return alert("查询用户失败。\n" + result.error);
+        return new Notify("查询用户失败", result.error);
       }
       container.innerHTML = "";
       const card = document.createElement("y-user-info-card");
@@ -602,6 +687,32 @@ class QueryUserElem extends BaseElem {
     adminQuery.addEventListener("click", async (e) => {
       container.innerHTML = "";
       await lockBtn(adminQuery, () => loadMore());
+    });
+  }
+}
+class UsercacheInfoCardElem extends BaseElem {
+  constructor() {
+    super("#t-usercache-info-card");
+  }
+  static get observedAttributes() {
+    return ["username", "password", "status"];
+  }
+  attrRender({ username, password, status }) {
+    const [name, passwd] = this.getAllElem("input");
+    name.value = username;
+    passwd.value = password;
+    this.getElem("strong").textContent = status == "done" ? "注册成功" : status;
+  }
+  render() {
+    const [name, passwd] = this.getAllElem("input");
+    name.addEventListener("input", () => {
+      this.setAttributes({ username: name.value, password: passwd.value });
+    });
+    passwd.addEventListener("input", () => {
+      this.setAttributes({ username: name.value, password: passwd.value });
+    });
+    this.getElem("button").addEventListener("click", () => {
+      if (!this.getAttribute("status")) this.remove();
     });
   }
 }
@@ -640,7 +751,7 @@ class Render {
     const headerElem = document.createElement("y-header");
     const settings = await User.settings();
     if (settings instanceof ErrorResponse) {
-      return alert("获取服务器配置失败。\n" + result.error);
+      return new Notify("获取服务器配置失败", result.error);
     }
     headerElem.setAttributes(settings);
     document.body.prepend(headerElem);
@@ -667,9 +778,9 @@ class User {
     if (!skipFresh) {
       const refresh = await User.refresh(accessToken, true);
       if (refresh instanceof ErrorResponse) {
+        new Notify("登录凭证已过期，请重新登录");
         user.info();
-        Render.login();
-        return alert("登录凭证已过期，请重新登录。");
+        return Render.login();
       }
       user.info(refresh.accessToken, refresh.uuid);
     } else {
@@ -677,12 +788,12 @@ class User {
     }
     const fullUserInfo = await user.getUserInfo(user.uuid);
     if (fullUserInfo instanceof ErrorResponse) {
-      return alert("获取用户信息失败。\n" + fullUserInfo.error);
+      return new Notify("获取用户信息失败", fullUserInfo.error);
     }
     if (!fullUserInfo.username) {
       user.info();
       Render.login();
-      return alert("登录凭证已过期，请重新登录。");
+      return new Notify("登录凭证已过期，请重新登录");
     }
     Render.user(fullUserInfo);
   }
@@ -716,7 +827,7 @@ class User {
   static async resetPass(username, rescueCode, newPass) {
     const userInfo = await request("/server/users?user=" + username);
     if (userInfo instanceof ErrorResponse) {
-      return { error: userInfo, errorMessage: "" };
+      return new ErrorResponse({ error: "无法重置密码", errorMessage: "提供的用户不存在" });
     }
     const userId = userInfo.id;
     return request("/server/user/" + userId + "/password", {
@@ -731,6 +842,12 @@ class User {
     return request("/server/sessions", {
       method: "delete",
       body: JSON.stringify({ accessToken: this.accessToken }),
+    });
+  }
+  logoutAll(username, password) {
+    return request("/server/sessions?all=true", {
+      method: "delete",
+      body: JSON.stringify({ username, password }),
     });
   }
   info(accessToken, uuid) {
@@ -896,6 +1013,35 @@ class User {
   }
 }
 
+class Notify {
+  alert(title, ...body) {
+    return alert([title, ...body].join("\n"));
+  }
+  notify(title, ...body) {
+    const noti = new Notification(title, { body: body.join("\n") });
+    noti.addEventListener("click", () => noti.close());
+    setTimeout(() => noti.close(), 1e4);
+    return noti;
+  }
+  constructor(title, ...body) {
+    if (!("Notification" in window)) {
+      return this.alert(title, ...body);
+    }
+    if (Notification.permission === "granted") {
+      return this.notify(title, ...body);
+    }
+    if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          return this.notify(title, ...body);
+        }
+        console.warn("用户拒绝授予通知弹窗权限");
+        return this.alert(title, ...body);
+      });
+    }
+  }
+}
+
 async function request(url, init) {
   const result = await fetch(url, {
     headers: Object.assign(
@@ -921,7 +1067,7 @@ async function lockBtn(btn, promise, ...params) {
   try {
     return await promise(...params);
   } catch (err) {
-    console.log("Error:", err);
+    console.error("Error:", err);
   } finally {
     btn.removeAttribute("disabled");
   }
@@ -945,6 +1091,7 @@ async function lockBtn(btn, promise, ...params) {
     login: LoginElem,
     "user-info-card": UserInfoCardElem,
     "query-user": QueryUserElem,
+    "usercache-info-card": UsercacheInfoCardElem,
   };
   for (let tag in list) {
     customElements.define(`${prefix}-${tag}`.toLocaleLowerCase(), list[tag]);

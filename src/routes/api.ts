@@ -191,7 +191,7 @@ const user: RoutePackConfig = {
         post: {
           handler: async function (request: FastifyRequest<{ Params: { uuid: uuid }; Body: { rescueCode: string; newPass: string } }>) {
             const uuid: uuid = request.params.uuid;
-            request.rateLim(uuid);
+            request.rateLim(uuid, 3e4);
             const { rescueCode = null, newPass = null } = request.body;
             return User.resetPass(uuid, rescueCode, newPass);
           },

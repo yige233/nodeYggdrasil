@@ -15,6 +15,8 @@ import {
   ResponseMeta,
   PublicProfileData,
   RoutePackConfig,
+  ResponseCertificates,
+  ResponsePublicKeys,
 } from "../libs/interfaces.js";
 import schemas, { Packer } from "../libs/schemas.js";
 import Utils, { ErrorResponse, SuccessResponse } from "../libs/utils.js";
@@ -22,7 +24,7 @@ import Session from "../libs/session.js";
 import Token from "../libs/token.js";
 import User from "../libs/user.js";
 import Textures from "../libs/textures.js";
-import { PROFILEMAP, USERSMAP, CONFIG, PUBLICKEY, TOKENSMAP, PRIVATEKEY } from "../global.js";
+import { PROFILEMAP, USERSMAP, CONFIG, PUBLICKEY, TOKENSMAP, PRIVATEKEY, MOJANGPUBKEY } from "../global.js";
 import Profile from "src/libs/profile.js";
 
 /** /authserver/ 开头的部分API */
@@ -91,10 +93,15 @@ export class AuthserverRoute {
 /** /sessionserver/ 开头的部分API */
 export class SessionserverRoute {
   /** 加入服务器 */
-  static join(request: FastifyRequest<{ Body: RequestJoinServer }>): SuccessResponse<undefined> {
+  static async join(request: FastifyRequest<{ Body: RequestJoinServer }>): Promise<SuccessResponse<undefined>> {
     const { accessToken = null, selectedProfile = null, serverId = null }: RequestJoinServer = request.body;
-    Session.issue(accessToken, selectedProfile, serverId, request.getIP());
-    return new SuccessResponse(undefined, 204);
+    try {
+      Session.issue(accessToken, selectedProfile, serverId, request.getIP());
+      return new SuccessResponse(undefined, 204);
+    } catch (e) {
+      await Session.issue2Mojang(accessToken, selectedProfile, serverId);
+      return new SuccessResponse(undefined, 204);
+    }
   }
   /** 验证会话有效性 */
   static async hasJoined(request: FastifyRequest<{ Querystring: RequestHasJoined }>): Promise<SuccessResponse<PublicProfileData | undefined>> {
@@ -189,6 +196,87 @@ export class ApiRoute {
     }
   }
 }
+/** minecraftservives开头的API */
+export class ServiceRoute {
+  /** 玩家聊天证书 */
+  static async certificates(request: FastifyRequest): Promise<SuccessResponse<ResponseCertificates>> {
+    function publicKeySignatureV2(pubKey: KeyObject, uuid: uuid, expiresAt: number) {
+      const timeBf = Buffer.alloc(8);
+      timeBf.writeBigUInt64BE(BigInt(new Date(expiresAt).getTime()), 0);
+      return Buffer.concat([Buffer.from(uuid, "hex"), timeBf, Buffer.from(pubKey.export({ type: "spki", format: "der" }))]);
+    }
+    function buildResponse(pubkey: KeyObject, privkey: KeyObject, uuid: string, expiresAt: number): SuccessResponse<ResponseCertificates> {
+      return new SuccessResponse({
+        keyPair: {
+          privateKey: Utils.keyRepack(privkey, true),
+          publicKey: Utils.keyRepack(pubkey, true),
+        },
+        expiresAt: new Date(expiresAt).toISOString(),
+        refreshedAfter: new Date(expiresAt - 1.44e7).toISOString(),
+        publicKeySignature: Utils.makeSignature(expiresAt + Utils.keyRepack(pubkey, true), PRIVATEKEY),
+        publicKeySignatureV2: Utils.makeSignature(publicKeySignatureV2(pubkey, uuid, expiresAt), PRIVATEKEY),
+      });
+    }
+    if (!CONFIG.features.enable_profile_key) {
+      throw new ErrorResponse("ForbiddenOperation", "features.enable_profile_key is false.");
+    }
+    try {
+      request.permCheck();
+      const accessToken: uuid = request.getToken();
+      const token = TOKENSMAP.get(accessToken);
+      const user = token.owner;
+      const { privkey, expiresAt } = await user.getUserPrivKey();
+      const pubKey = crypto.createPublicKey(privkey);
+      return buildResponse(pubKey, privkey, token.profile, expiresAt);
+    } catch (e) {
+      request.rateLim(request.url, 1e3);
+      try {
+        const {
+          profiles: { mc },
+        } = JSON.parse(Utils.decodeb64(request.headers.authorization.split(".")[1]));
+        const uuid = mc.replace(/-/g, "");
+        const { privateKey, publicKey } = await Utils.getRSAKeyPair();
+        const expiresAt = new Date().getTime() + 1.44e7;
+        return buildResponse(publicKey, privateKey, uuid, expiresAt);
+      } catch (e) {
+        throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+      }
+    }
+  }
+  /** 服务器公钥 */
+  static async publickeys(): Promise<SuccessResponse<ResponsePublicKeys>> {
+    const publicKeyArr = PUBLICKEY.export({ type: "spki", format: "pem" })
+      .toString()
+      .split("\n")
+      .filter((i) => i);
+    publicKeyArr.shift();
+    publicKeyArr.pop();
+    const selfPublickey = publicKeyArr.join("");
+    const {
+      profilePropertyKeys: [{ publicKey: mojangPublickey }],
+      playerCertificateKeys: [{ publicKey: mojangPlayerCertificateKey }],
+    } = MOJANGPUBKEY;
+    return new SuccessResponse({
+      profilePropertyKeys: [{ publicKey: selfPublickey }, { publicKey: mojangPublickey }],
+      playerCertificateKeys: [{ publicKey: selfPublickey }, { publicKey: mojangPlayerCertificateKey }],
+    });
+  }
+  /** 玩家属性 */
+  static get playerAttributes() {
+    return {
+      privileges: {
+        onlineChat: { enabled: true },
+        multiplayerServer: { enabled: true },
+        multiplayerRealms: { enabled: true },
+        telemetry: { enabled: true },
+        optionalTelemetry: { enabled: true },
+      },
+      profanityFilterPreferences: { profanityFilterOn: true },
+      banStatus: { bannedScopes: {} },
+    };
+  }
+}
+
 /** 其他以 / 开头的API */
 export class Root {
   /** API 元数据 */
@@ -392,61 +480,13 @@ const api: RoutePackConfig = {
     },
   ],
 };
-
-const yggdrasil: RoutePackConfig = {
-  get: {
-    handler: () => Root.meta,
-    schema: { summary: "获取本 API 的元数据", tags: ["yggdrasil"], response: { 200: schemas.ResponseMeta } },
-  },
+const minecraftservices: RoutePackConfig = {
   routes: [
-    { url: "/authserver", config: authserver },
-    { url: "/sessionserver/session/minecraft", config: sessionserver },
-    { url: "/api", config: api },
     {
-      url: "/textures/:hash",
-      config: {
-        get: {
-          handler: Root.textures,
-          schema: {
-            summary: "获取hash对应的材质文件",
-            tags: ["yggdrasil"],
-            params: Packer.object("材质hash")({ hash: schemas.sharedVars.hashUUid }, "hash"),
-            response: { 200: Packer.typeNull("材质图片(.png)") },
-            produces: ["image/png"],
-          },
-        },
-      },
-    },
-    {
-      url: "/minecraftservices/player/certificates",
+      url: "/player/certificates",
       config: {
         post: {
-          handler: async (request: FastifyRequest) => {
-            function publicKeySignatureV2(pubKey: KeyObject, uuid: uuid, expiresAt: number) {
-              const timeBf = Buffer.alloc(8);
-              timeBf.writeBigUInt64BE(BigInt(new Date(expiresAt).getTime()), 0);
-              return Buffer.concat([Buffer.from(uuid, "hex"), timeBf, Buffer.from(pubKey.export({ type: "spki", format: "der" }))]);
-            }
-            if (!CONFIG.features.enable_profile_key) {
-              throw new ErrorResponse("ForbiddenOperation", "features.enable_profile_key is false.");
-            }
-            request.permCheck();
-            const accessToken: uuid = request.getToken();
-            const token = TOKENSMAP.get(accessToken);
-            const user = token.owner;
-            const { privkey, expiresAt } = await user.getUserPrivKey();
-            const pubKey = crypto.createPublicKey(privkey);
-            return new SuccessResponse({
-              keyPair: {
-                privateKey: Utils.keyRepack(privkey, true),
-                publicKey: Utils.keyRepack(pubKey, true),
-              },
-              expiresAt: new Date(expiresAt).toISOString(),
-              refreshedAfter: new Date(expiresAt - 1.44e7).toISOString(),
-              publicKeySignature: Utils.makeSignature(expiresAt + Utils.keyRepack(pubKey, true), PRIVATEKEY),
-              publicKeySignatureV2: Utils.makeSignature(publicKeySignatureV2(pubKey, token.profile, expiresAt), PRIVATEKEY),
-            });
-          },
+          handler: ServiceRoute.certificates,
           schema: {
             summary: "获取用户密钥对，用于加密聊天消息",
             tags: ["yggdrasil"],
@@ -474,7 +514,26 @@ const yggdrasil: RoutePackConfig = {
       },
     },
     {
-      url: "/minecraftservices/minecraft/profile/lookup/bulk/byname",
+      url: "/publickeys",
+      config: {
+        get: {
+          handler: ServiceRoute.publickeys,
+          schema: {
+            summary: "获取服务器公钥",
+            description: "包含服务器自己的公钥和Mojang的公钥，这样可以兼容正版玩家进服",
+            tags: ["yggdrasil"],
+            response: {
+              200: Packer.object()({
+                profilePropertyKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
+                playerCertificateKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
+              }),
+            },
+          },
+        },
+      },
+    },
+    {
+      url: "/minecraft/profile/lookup/bulk/byname",
       config: {
         post: {
           handler: ApiRoute.profiles,
@@ -483,6 +542,51 @@ const yggdrasil: RoutePackConfig = {
             tags: ["yggdrasil"],
             body: schemas.RequestProfilesQuery,
             response: { 204: schemas.Response204.bad, 200: Packer.array("不包含角色属性")(schemas.PublicProfileData) },
+          },
+        },
+      },
+    },
+    {
+      url: "/player/attributes",
+      config: {
+        get: {
+          handler: () => {
+            return new SuccessResponse(ServiceRoute.playerAttributes);
+          },
+          schema: {
+            summary: "如果mc客户端采取添加jvm参数的方式实现完美兼容正版，则此api会被mc调用，因此需要返回有意义的信息",
+            tags: ["yggdrasil"],
+            response: {
+              200: Packer.object("玩家属性")(ServiceRoute.playerAttributes),
+            },
+          },
+        },
+      },
+    },
+  ],
+};
+
+const yggdrasil: RoutePackConfig = {
+  get: {
+    handler: () => Root.meta,
+    schema: { summary: "获取本 API 的元数据", tags: ["yggdrasil"], response: { 200: schemas.ResponseMeta } },
+  },
+  routes: [
+    { url: "/authserver", config: authserver },
+    { url: "/sessionserver/session/minecraft", config: sessionserver },
+    { url: "/api", config: api },
+    { url: "/minecraftservices", config: minecraftservices },
+    {
+      url: "/textures/:hash",
+      config: {
+        get: {
+          handler: Root.textures,
+          schema: {
+            summary: "获取hash对应的材质文件",
+            tags: ["yggdrasil"],
+            params: Packer.object("材质hash")({ hash: schemas.sharedVars.hashUUid }, "hash"),
+            response: { 200: Packer.typeNull("材质图片(.png)") },
+            produces: ["image/png"],
           },
         },
       },

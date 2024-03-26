@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>NameLess</title>
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
   <meta name="viewport" content="width=device-width,minimum-scale=1,maximum-scale=1,user-scalable=0,initial-scale=1" />
   <link rel="stylesheet" href="./css/simple.min.css" />
   <link rel="stylesheet" href="./css/main.css" />
@@ -123,6 +124,7 @@
         <div><span>用户名：</span><input type="email" /><span class="info">危险操作需要提供账号。</span></div>
         <div><span>密码：</span><input type="password" /><span class="info">危险操作需要提供密码。</span></div>
         <div><span>重复密码：</span><input type="password" /></div>
+        <div> <button>注销所有登录会话</button> </div>
         <div>
           <button class="danger">永久锁定账户</button>
           <span class="info">无法增删以及修改角色，包括角色名称、皮肤、披风和披风可见性；不能修改用户名、用户昵称和登录密码；不能找回密码；不能使用该用户的邀请码；不能查看救援代码。</span>
@@ -226,11 +228,16 @@
     <div class="item-l1">
       <div>
         <span>管理员：批量用户注册</span>
-        <span class="info">用于从服务器迁移用户。用户名后缀：由于用户名必须是邮箱格式，因此需要为批量创建的用户添加符合邮箱格式的后缀（username@example.com）</span>
+        <span
+          class="info">用于从服务器迁移用户。该操作不能为用户创建角色。用户名后缀：由于用户名必须是邮箱格式，因此需要为批量创建的用户添加符合邮箱格式的后缀（username@example.com）</span>
       </div>
       <div>
         <div><span>选择服务器产生的usercache.json：</span><input type="file" accept="application/json" /></div>
-        <div><span>用户名后缀：</span><input type="text" /><span class="info">如：@example.com。需要提供此后缀，使批量创建的用户账户名符合邮箱格式。</span>
+        <div><span>用户名后缀：</span><input type="text" value="@minecraft.mc" /><span
+            class="info">如：@example.com。需要提供此后缀，使批量创建的用户账户名符合邮箱格式。</span>
+        </div>
+        <div><span>用户信息预览</span>
+          <div class="card-container"> </div>
         </div>
         <div><span>邀请码：</span><input type="text" /><span class="info">同单个用户注册时需要的邀请码。</span></div>
         <div><button>提交</button></div>
@@ -275,17 +282,23 @@
           <button>查看所有用户</button><span class="info">管理员限定</span>
         </div>
         <div><span>查询结果：</span>
-          <div class="query-result-container"> </div>
+          <div class="card-container"> </div>
         </div>
       </div>
     </div>
   </template>
   <template id="t-user-info-card">
-      <div><span>用户：</span><strong></strong></div>
-      <div><span>昵称：</span><strong></strong></div>
-      <div><span>身份：</span><strong></strong></div>
-      <div><span>注册时间：</span><strong></strong></div>
-      <div><span>封禁状态：</span><strong></strong></div>
+    <div><span>用户：</span><strong></strong></div>
+    <div><span>昵称：</span><strong></strong></div>
+    <div><span>身份：</span><strong></strong></div>
+    <div><span>注册时间：</span><strong></strong></div>
+    <div><span>封禁状态：</span><strong></strong></div>
+  </template>
+  <template id="t-usercache-info-card">
+    <div><span>账户名称：</span><input type="email" /></div>
+    <div><span>账户密码：</span><input type="text" /></div>
+    <div><span>状态：</span><strong></strong></div>
+    <div><button>移除</button></div>
   </template>
 </body>
 <script src="./js/main.js" type="module"></script>

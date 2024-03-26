@@ -132,4 +132,28 @@ export default class Session {
     }
     return new Session(accessToken, selectedProfile, serverId, ip);
   }
+  /**
+   * 对于正版登录，验证端起一个代理作用，向官方验证端报告登录事件。这里由于是代替客户端向官方报告登录，可能会出现两边ip不一致，导致hasJoined验证失败
+   * @param accessToken 用户accessToken，在此处是正版用户的登录token，不能对其进行任何形式的保存
+   * @param selectedProfile 选择的角色uuid
+   * @param serverId mc服务器id
+   * @returns {true}
+   */
+  static async issue2Mojang(accessToken: string, selectedProfile: uuid, serverId: string): Promise<true> {
+    const res = await fetch("https://sessionserver.mojang.com/session/minecraft/join", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        accessToken,
+        selectedProfile,
+        serverId,
+      }),
+    });
+    if (res.status != 204) {
+      throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+    }
+    return true;
+  }
 }

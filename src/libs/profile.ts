@@ -154,19 +154,20 @@ export default class Profile implements ProfileData {
     }
     if (type == "mojang") {
       const profileName = data.profileName;
-      const { id = null }: any = await fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { headers: Utils.requestHeaders })
+      const { id=undefined, errorMessage=undefined }: any = await fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { headers: Utils.requestHeaders })
         .then((res) => res.json())
         .catch(() => {});
       if (!id) {
-        throw new ErrorResponse("BadOperation", `This profile name is invalid in Mojang's API: ${profileName}, or the server is temporarily unable to connect to the Mojang API.`);
+        if (errorMessage) {
+          throw new ErrorResponse("BadOperation", `Error message from Mojang: ${errorMessage}`);
+        }
+        throw new ErrorResponse("BadOperation", `The server is temporarily unable to connect to the Mojang API.`);
       }
       const {
-        properties: [{ value = null }],
+        properties: [{ value }],
       }: Partial<PublicProfileData> = await fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${id}`, { headers: Utils.requestHeaders })
         .then((res) => res.json())
-        .catch(() => {
-          return { properties: [] };
-        });
+        .catch(() => ({ properties: [] }));
       if (!value) {
         throw new ErrorResponse("BadOperation", "The server is temporarily unable to connect to the Mojang API, Please try again later.");
       }
@@ -174,7 +175,13 @@ export default class Profile implements ProfileData {
         textures: { SKIN, CAPE },
       }: Partial<TexturesData> = JSON.parse(Utils.decodeb64(value));
       if (!SKIN && !CAPE) {
-        throw new ErrorResponse("BadOperation", `This profile name has no skin or cape: ${profileName}, or the server is temporarily unable to connect to the Mojang API.`);
+        throw new ErrorResponse("BadOperation", `This profile name has no skin or cape: ${profileName}.`);
+      }
+      if (SKIN) {
+        await Textures.remove(this.localRes.skin, this.id);
+      }
+      if (CAPE) {
+        await Textures.remove(this.localRes.cape, this.id);
       }
       this.textures = { SKIN, CAPE };
     }
@@ -193,11 +200,13 @@ export default class Profile implements ProfileData {
             model: model,
           },
         };
+        await Textures.remove(this.localRes.skin, this.id);
         this.textures.SKIN = skinData;
       } else {
         const skinData: TextureData = {
           url: `https://littleskin.cn/textures/${hash}`,
         };
+        await Textures.remove(this.localRes.cape, this.id);
         this.textures.CAPE = skinData;
       }
     }
@@ -261,7 +270,7 @@ export default class Profile implements ProfileData {
       profileName: this.name,
       textures: Object.assign({}, this.textures),
     };
-    if (!this.capeVisible && textures.textures.CAPE) {
+    if (this.capeVisible == false && textures.textures.CAPE) {
       delete textures.textures.CAPE;
     }
     if (!textures.textures.SKIN && CONFIG.user.enableDefaultSkin) {

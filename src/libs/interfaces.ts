@@ -352,6 +352,22 @@ export interface ResponseMeta {
   skinDomains: string[];
   signaturePublickey: string;
 }
+/** 玩家聊天证书响应 */
+export interface ResponseCertificates {
+  keyPair: {
+    privateKey: string;
+    publicKey: string;
+  };
+  expiresAt: string;
+  refreshedAfter: string;
+  publicKeySignature: string;
+  publicKeySignatureV2: string;
+}
+/** 服务器公钥响应 */
+export interface ResponsePublicKeys {
+  profilePropertyKeys: { publicKey: string }[];
+  playerCertificateKeys: { publicKey: string }[];
+}
 
 /** 自定义route包装器的配置 */
 export type RoutePackConfig = {
