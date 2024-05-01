@@ -162,6 +162,9 @@ class BaseElem extends HTMLElement {
     if (observedAttr.length > 0 && !observedAttr.includes(name) && !forced) {
       return;
     }
+    if (typeof value == "undefined") {
+      return;
+    }
     if (name == "attr-changed" && !forced) {
       return super.setAttribute("attr-changed", Math.random());
     }
@@ -307,11 +310,13 @@ class ProfileInfoElem extends BaseElem {
   async attrRender({ name, id, skin, cape, model }) {
     async function load(name, url) {
       try {
-        const response = await fetch(url);
+        const parsedURL = new URL(url);
+        parsedURL.protocol = window.location.protocol;
+        const response = await fetch(parsedURL.href);
         const blob = await response.blob();
         return URL.createObjectURL(blob);
       } catch (e) {
-        console.error(`加载${name}(${url})失败: ${e}`);
+        console.error(`加载${name}(${url})失败。`, e);
         return undefined;
       }
     }
