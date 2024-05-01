@@ -71,6 +71,10 @@ export default class Profile implements ProfileData {
    * @returns {true}
    */
   static nameCheck(name: string): true {
+    if (!name) {
+      //没有提供角色名
+      throw new ErrorResponse("BadOperation", "The provided profile name is empty.");
+    }
     if (name.length >= 30) {
       //该角色名称太长
       throw new ErrorResponse("BadOperation", `The provided profile name is too loooooong.`);
@@ -154,7 +158,7 @@ export default class Profile implements ProfileData {
     }
     if (type == "mojang") {
       const profileName = data.profileName;
-      const { id=undefined, errorMessage=undefined }: any = await fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { headers: Utils.requestHeaders })
+      const { id = undefined, errorMessage = undefined }: any = await fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { headers: Utils.requestHeaders })
         .then((res) => res.json())
         .catch(() => {});
       if (!id) {

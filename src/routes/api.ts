@@ -223,7 +223,7 @@ const users: RoutePackConfig = {
       let { user: username, after, count = 10 } = request.query;
       if (username) {
         if (USERSMAP.has(username)) {
-          reply.header("Location", `./user/${USERSMAP.get(username).id}`);
+          reply.header("Location", `user/${USERSMAP.get(username).id}`);
           reply.status(302);
           reply.send();
           return false;

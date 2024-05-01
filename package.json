@@ -1,6 +1,6 @@
 {
   "name": "node-yggdrasil-server",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "基于nodejs的Yggdrasil服务端实现",
   "main": "./build/index.js",
   "scripts": {

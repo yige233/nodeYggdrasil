@@ -90,3 +90,53 @@ button {
 .card-container > button {
   color: var(--text);
 }
+dialog {
+  min-width: 300px;
+  max-width: 80%;
+  border: none;
+  box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  padding: 0;
+}
+dialog[open] {
+  animation: slide-up 0.4s ease-out;
+}
+dialog > div {
+  display: grid;
+  padding: 12px;
+  grid-template-rows: 2fr 6fr 1fr;
+  grid-gap: 0.5em;
+  font-size: 1rem;
+}
+.dialog-title {
+  text-align: center;
+  font-size: 1.5rem;
+  user-select: none;
+}
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+@keyframes slide-up {
+  0% {
+    opacity: 0;
+    top: 10%;
+  }
+
+  100% {
+    opacity: 1;
+    top: 0%;
+  }
+}
+dialog .text-btn {
+  user-select: none;
+  color: rgb(39 177 219);
+  cursor: pointer;
+  margin: 0 5px;
+}
+dialog .text-btn:hover {
+  color: rgb(251, 114, 153);
+}

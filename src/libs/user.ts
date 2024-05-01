@@ -68,6 +68,7 @@ export default class User implements UserData {
     this.password = data.password;
     this.banned = data.banned;
     this.id = data.id;
+    this.rescueCode = data.rescueCode || undefined;
     this.regTime = data.regTime || new Date().getTime();
     this.regIP = data.regIP;
     this.role = "admin" == data.role ? "admin" : "user";
