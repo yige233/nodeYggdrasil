@@ -288,7 +288,7 @@ class ProfileInfoElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("材质上传失败", result.error);
       }
-      DialogBox.show("材质上传成功");
+      DialogBox.show("材质上传成功", undefined);
       this.setAttributes({ ...result });
     });
     btns[2].addEventListener("click", async (e) => {
@@ -299,7 +299,7 @@ class ProfileInfoElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("角色删除失败", result.error);
       }
-      DialogBox.show("角色删除成功");
+      DialogBox.show("角色删除成功", undefined);
       this.classList.toggle("disappear");
       this.addEventListener("animationend", this.remove);
     });
@@ -438,7 +438,7 @@ class DangerOpElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("操作失败", result.error);
       }
-      DialogBox.show("已注销本账户的所有会话");
+      DialogBox.show("已注销本账户的所有会话", undefined);
       window.location.reload();
     });
     btnLock.addEventListener("click", async (e) => {
@@ -452,7 +452,7 @@ class DangerOpElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("锁定用户失败", result.error);
       }
-      DialogBox.show("用户已经被锁定");
+      DialogBox.show("用户已经被锁定", undefined);
     });
     btnDelete.addEventListener("click", async (e) => {
       if (!(await DialogBox.confirm("请确认", "你真的要删除账户吗？"))) {
@@ -465,7 +465,7 @@ class DangerOpElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("删除用户失败", result.error);
       }
-      DialogBox.show("用户已经被删除");
+      DialogBox.show("用户已经被删除", undefined);
       window.location.reload();
     });
   }
@@ -568,7 +568,7 @@ class AdminSettingsElem extends BaseElem {
       if (result instanceof ErrorResponse) {
         return DialogBox.show("发送重启指令失败", result.error);
       }
-      DialogBox.show("已向服务器发送重启指令");
+      DialogBox.show("已向服务器发送重启指令", undefined);
     });
   }
   attrRender({ settings }) {
@@ -661,7 +661,7 @@ class ResetPassElem extends BaseElem {
       if (result.error) {
         return DialogBox.show("重置密码失败", result.error);
       }
-      return DialogBox.show("密码重置成功。");
+      return DialogBox.show("密码重置成功。", undefined);
     });
   }
 }
@@ -806,7 +806,7 @@ class User {
     if (!skipFresh) {
       const refresh = await User.refresh(accessToken, true);
       if (refresh instanceof ErrorResponse) {
-        DialogBox.show("登录凭证已过期，请重新登录");
+        DialogBox.show("登录凭证已过期，请重新登录", undefined);
         USER.info();
         return Render.login();
       }
@@ -821,7 +821,7 @@ class User {
     if (!fullUserInfo.username) {
       USER.info();
       Render.login();
-      return DialogBox.show("登录凭证已过期，请重新登录");
+      return DialogBox.show("登录凭证已过期，请重新登录", undefined);
     }
     Render.user(fullUserInfo);
   }
@@ -1091,8 +1091,9 @@ class Dialog {
     const content = this.dialog.querySelector(".dialog-content");
     title && (this.dialog.querySelector(".dialog-title").innerText = title);
     if (contentElem.length > 0) {
+      const elemArray = contentElem.filter((i) => i);
       content.innerHTML = "";
-      content.append(...contentElem);
+      content.append(...elemArray);
     }
     this.dialog.showModal();
   }
