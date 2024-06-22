@@ -1,5 +1,3 @@
-import styles from "../css/main.css" assert { type: "css" };
-import simpleCSS from "../css/simple.min.css" assert { type: "css" };
 import "./skinview3d.bundle.js";
 
 class Base64 {
@@ -97,6 +95,8 @@ class Broadcast extends BroadcastChannel {
     return new Promise((resolve) => setTimeout(() => resolve(replies), timeWindow));
   }
 }
+const simpleCSS = copyCSSSheets(document.styleSheets[0]);
+const styles = copyCSSSheets(document.styleSheets[1]);
 
 const rendered = Symbol("rendered");
 const root = Symbol("root");
@@ -152,9 +152,9 @@ class BaseElem extends HTMLElement {
   }
   /**
    * 重写setAttribute，防止某些情况下设置多余的属性
-   * @param {*} name 属性名
-   * @param {*} value 属性值
-   * @param {*} forced 是否强制设置，默认为false
+   * @param {string} name 属性名
+   * @param {string} value 属性值
+   * @param {boolean} forced 是否强制设置，默认为false
    * @returns
    */
   setAttribute(name, value, forced = false) {
@@ -1072,7 +1072,7 @@ class Dialog {
   }
   /**
    * 添加按钮。如果存在buttons.ok，会将回车事件绑定到ok按钮
-   * @param {*} buttons 键值对形式，键为按下该按钮时会触发的事件名，值是按钮的文本名称
+   * @param {} buttons 键值对形式，键为按下该按钮时会触发的事件名，值是按钮的文本名称
    */
   buttons(buttons = { ok: "确定", cancel: "取消" }) {
     const footer = this.dialog.querySelector(".dialog-footer");
@@ -1089,7 +1089,7 @@ class Dialog {
   }
   /**
    * 修改对话框内容,并可选地修改对话框标题与内容
-   * @param {*} title 新的标题
+   * @param {string} title 新的标题
    * @param  {...any} contentElem 新的对话框主体
    */
   show(title, ...contentElem) {
@@ -1124,8 +1124,8 @@ class Dialog {
   }
   /**
    * 监听按钮事件。实际上是监听对话框关闭事件
-   * @param {*} eventName 事件名称，来自于 Dialog.buttons()。默认是ok和cancel
-   * @param {*} callbackFunc 回调
+   * @param {string} eventName 事件名称，来自于 Dialog.buttons()。默认是ok和cancel
+   * @param {Function} callbackFunc 回调
    */
   on(eventName, callbackFunc) {
     let callbackClose = (e) => {
@@ -1219,6 +1219,19 @@ function html(tagName, ...args) {
   }
 
   return element;
+}
+
+/**
+ * 将通过 cssText 创建的 CSSStyleSheet 复制到构造的 CSSStyleSheet，以用于adoptedStyleSheets
+ * @param {CSSStyleSheet} src 源 CSSStyleSheet
+ * @returns {CSSStyleSheet}
+ */
+function copyCSSSheets(src) {
+  const styleSheet = new CSSStyleSheet();
+  for (let i = 0; i < src.cssRules.length; i++) {
+    styleSheet.insertRule(src.cssRules.item(i).cssText);
+  }
+  return styleSheet;
 }
 
 (function defineElem(prefix = "custom") {
