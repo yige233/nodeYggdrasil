@@ -1,0 +1,6 @@
+/build
+/data
+/node_modules
+/*.7z
+/*.zip
+/update.md

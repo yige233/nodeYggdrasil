@@ -4,11 +4,12 @@ import publicStatic from "@fastify/static";
 import Ajv, { KeywordCxt } from "ajv";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import fs from "fs/promises";
-import { ACCESSCONTROLLER, CONFIG, PROFILEMAP, TOKENSMAP, USERSMAP } from "./global.js";
+import { ACCESSCONTROLLER, CONFIG, pinoLogger, PROFILES, TOKENSMAP, USERS, WEBHOOK } from "./global.js";
 import { Plugin } from "./libs/utils.js";
 import yggdrasil from "./routes/yggdrasil.js";
 import server from "./routes/api.js";
+
+const yggdrasilALI = { "x-authlib-injector-api-location": "/yggdrasil" };
 
 const ajv = new Ajv({
   removeAdditional: true,
@@ -29,51 +30,23 @@ const app: FastifyInstance = Fastify({
   disableRequestLogging: true,
   exposeHeadRoutes: true,
   ignoreTrailingSlash: true,
-  logger: {
-    formatters: {
-      level(label) {
-        return { level: label.toUpperCase() };
-      },
-    },
-    customLevels: {
-      /** 登录事件日志 */
-      login: 35,
-    },
-    stream: {
-      write(msg) {
-        const { level, time, msg: message, err = null } = JSON.parse(msg);
-        const date = new Date(time).toLocaleString();
-        if (level == "LOGIN") {
-          fs.appendFile("./data/logins.log", `[${date}] [${level}] ${message}\r\n`);
-        }
-        if (level == "ERROR") {
-          const prettyMsg = [`[${date}] [${level}] ${message}`, `  type:${err.type}`, `  message:${err.message}`, `  stack:${err.stack}`, `  traceId:${err.trace || null}`];
-          fs.appendFile("./data/errors.log", `${prettyMsg.join("\r\n")}\r\n`);
-        }
-        process.stdout.write(`[${date}] [${level}] ${message} ${level == "ERROR" ? err.trace : ""}\r\n`);
-      },
-    },
-  },
+  loggerInstance: pinoLogger,
 });
 app.setValidatorCompiler(({ schema }) => ajv.compile(schema));
 
-await app.register(publicStatic, {
-  root: path.resolve("./public"),
+await app.register(async (instance) => {
+  publicStatic(instance, { root: path.resolve("./public") });
+  instance.addHook("onRequest", async (_request, reply) => void reply.headers(yggdrasilALI));
 });
 Plugin.errorResponse(app);
 Plugin.successResponse(app);
-Plugin.permissionCheck(app, { USERSMAP, PROFILEMAP, TOKENSMAP });
+Plugin.permissionCheck(app, { USERS, PROFILES, TOKENSMAP });
 Plugin.getToken(app);
 Plugin.routePacker(app);
 Plugin.handlePacker(app);
 Plugin.allowedContentType(app);
-Plugin.getIP(app, {
-  trustXRealIP: CONFIG.server.trustXRealIP,
-});
-Plugin.rateLim(app, {
-  gap: CONFIG.server.keyReqRateLimit,
-  controller: ACCESSCONTROLLER,
-});
+Plugin.getIP(app, { trustXRealIP: CONFIG.server.trustXRealIP });
+Plugin.rateLim(app, { gap: CONFIG.server.keyReqRateLimit, controller: ACCESSCONTROLLER });
 
 app.setNotFoundHandler((requset, reply) => reply.replyError("NotFound", `Path not found: ${requset.url}`));
 app.setErrorHandler(async (error, _requset, reply) => reply.replyError("BadOperation", `check your request: ${error.message || "something is wrong."}`));
@@ -97,40 +70,26 @@ if (CONFIG.privExtend.enableSwaggerUI) {
   });
   await app.register(swaggerUi, {
     routePrefix: "/docs",
-    uiConfig: {
-      docExpansion: "list",
-      deepLinking: false,
-    },
+    uiConfig: { docExpansion: "list", deepLinking: false },
     staticCSP: true,
     transformSpecificationClone: true,
   });
 }
 
 app.register(async (instance) => {
-  instance.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, async function (_request: FastifyRequest, body: string) {
-    return body;
-  });
-  instance.decorateRequest("allowedContentType", null);
-  instance.addHook("onRequest", async (_request, reply) => {
-    reply.headers({
-      "content-type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "X-Authlib-Injector-API-Location": "./yggdrasil/", // 使用相对 URL
-    });
-  });
-  instance.addHook("onResponse", (request, reply) => {
-    instance.log.info(`${request.getIP()} use ${request.method} for ${request.url} => ${reply.statusCode}`);
-  });
-  instance.pack("/", {
-    routes: [
-      { url: "/yggdrasil", config: yggdrasil },
-      { url: "/server", config: server },
-    ],
+  instance.pack({
+    url: "/",
+    routes: [server, yggdrasil],
+    before: function (instance) {
+      instance.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, async (_request: FastifyRequest, body: string) => body);
+      instance.decorateRequest("allowedContentType", null);
+      instance.addHook("onRequest", async (_request, reply) => void reply.headers(Object.assign({ "content-type": "application/json; charset=utf-8" }, yggdrasilALI)));
+      instance.addHook("onResponse", (request, reply) => void pinoLogger.info(`${request.getIP()} - ${request.method} ${request.url} => ${reply.statusCode}`));
+    },
   });
 });
 
-const result = await app.listen({
-  port: CONFIG.server.port,
-  host: CONFIG.server.host,
-});
-app.log.info(`yggdrasil 验证服务端: ${CONFIG.server.name} 正运行在 ${result}`);
+const result = await app.listen({ port: CONFIG.server.port, host: CONFIG.server.host });
+WEBHOOK.emit("server.start", {});
+process.on("exit", () => WEBHOOK.emit("server.killed", {}));
+pinoLogger.info(`yggdrasil 验证服务端: ${CONFIG.server.name} 正运行在 ${result}`);

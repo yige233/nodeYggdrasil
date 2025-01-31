@@ -1,34 +1,39 @@
-import { USERSMAP, CONFIG, ACCESSCONTROLLER, PROFILEMAP, USERS, SALTS } from "../global.js";
-import { UserData, uuid, MinimumUserData, PublicProfileData, PublicUserData, PrivateUserData } from "./interfaces.js";
-import Profile from "./profile.js";
-import Token from "./token.js";
-import Utils, { ErrorResponse, JSONFile, SuccessResponse } from "./utils.js";
 import crypto, { KeyObject } from "crypto";
+import fs from "fs/promises";
+import { USERS, CONFIG, ACCESSCONTROLLER, PROFILES, SALTS, pathOf, pinoLogger, InviteCodes } from "../global.js";
+import { UserData, uuid, MinimumUserData, PublicProfileData, PublicUserData, PrivateUserData } from "./interfaces.js";
+import Token from "./token.js";
+import Utils, { ErrorResponse } from "./utils.js";
 
-/** 临时邀请码 */
-export const TempInviteCodes = new (class {
-  /** 存储临时邀请码 */
-  codes = new Map();
-  /**
-   * 申请一个临时邀请码
-   * @returns {string}
-   */
-  new(): string {
+export class InviteCode {
+  codes: Map<string, { expiresAt: number; issuer: string }> = new Map();
+  issue(issuer: string = "system"): string {
+    /** 邀请码过期时间：半小时 */
+    const expireIn = 18e5;
+    if (issuer != "system" && this.countOf(issuer) >= USERS.get(issuer).remainingInviteCodeCount) {
+      throw new ErrorResponse("ForbiddenOperation", "Can't issue more inviteCode.");
+    }
     const code = parseInt(crypto.createHash("shake256", { outputLength: 4 }).update(Utils.uuid()).digest("hex"), 16).toString(36);
-    this.codes.set(code, { expiresAt: new Date().getTime() + 18e5 });
+    this.codes.set(code, { expiresAt: Date.now() + expireIn, issuer });
     return code;
   }
+  countOf(issuer: string = "system") {
+    return [...this.codes.values()].filter((val) => val.issuer == issuer).length;
+  }
+  clear() {
+    this.codes.forEach((_v, k) => {
+      if (!InviteCodes.test(k).available) this.invalidate(k);
+    });
+    return this.codes.size;
+  }
   /**
-   * 测试一个临时邀请码。如果测试通过，该邀请码会被删除，同时返回true；测试未通过则返回false。
-   * @param code
-   * @returns {boolean}
+   * 测试一个邀请码是否有效。
+   * @param code 邀请码
+   * @returns
    */
-  test(code: string): boolean {
-    const data = this.codes.get(code) || { expiresAt: 0 };
-    if (!data || data.expiresAt < new Date().getTime()) {
-      return false;
-    }
-    return true;
+  test(code: string): { available: boolean; issuer: string } {
+    const { expiresAt = 0, issuer } = this.codes.get(code) || {};
+    return { issuer, available: expiresAt > Date.now() };
   }
   /**
    * 吊销一个邀请码
@@ -38,52 +43,51 @@ export const TempInviteCodes = new (class {
   invalidate(code: string): boolean {
     return this.codes.delete(code);
   }
-})();
+}
 
 /** 用户 */
 export default class User implements UserData {
-  username: string;
-  password: string;
-  rescueCode: string;
-  nickName: string;
-  profiles: uuid[];
   readonly id: uuid;
   readonly regTime: number;
   readonly regIP: string;
   role: "admin" | "user" = "user";
+  salt: string;
   banned: number = 0;
   readonly: boolean = false;
-  salt: string;
+  username: string;
+  password: string;
+  nickName: string;
+  profiles: uuid[];
+  rescueCode: string;
+  maxProfileCount: number;
+  remainingInviteCodeCount: number;
   cert: {
     privkey: string;
     expiresAt: number;
   };
-  extend: { [key: string]: any; inviteCode: string; source: string };
+  extend: { [key: string]: any; source: string };
   pubExtends: {};
   properties: { name: "preferredLanguage" | string; value: string }[];
   /** 用户拥有的令牌 */
   tokens: Set<uuid> = new Set();
-  constructor(data: Partial<UserData>) {
+  constructor(data: UserData) {
+    this.id = data.id;
+    this.role = "admin" == data.role ? "admin" : "user";
+    this.salt = SALTS[data.id];
+    this.cert = data.cert;
+    this.regIP = data.regIP;
+    this.banned = data.banned;
+    this.extend = data.extend;
+    this.regTime = data.regTime;
     this.username = data.username;
     this.password = data.password;
-    this.banned = data.banned;
-    this.id = data.id;
-    this.rescueCode = data.rescueCode || undefined;
-    this.regTime = data.regTime || new Date().getTime();
-    this.regIP = data.regIP;
-    this.role = "admin" == data.role ? "admin" : "user";
-    this.extend = data.extend;
     this.readonly = data.readonly;
     this.nickName = data.nickName;
-    this.salt = SALTS[data.id] || undefined;
-    this.cert = data.cert || undefined;
-    this.profiles = data.profiles || [];
-    this.properties = data.properties || [
-      {
-        name: "preferredLanguage",
-        value: "zh_CN",
-      },
-    ];
+    this.profiles = data.profiles ?? [];
+    this.rescueCode = data.rescueCode;
+    this.properties = data.properties ?? [{ name: "preferredLanguage", value: "zh_CN" }];
+    this.maxProfileCount = data.maxProfileCount ?? CONFIG.user.maxProfileCount;
+    this.remainingInviteCodeCount = data.remainingInviteCodeCount ?? CONFIG.user.defaultInviteCodeCount;
   }
   /**
    * 用户注册
@@ -95,72 +99,71 @@ export default class User implements UserData {
    * @returns {User}
    */
   static async register({ username, password, inviteCode, ip, nickName }: { username: string; password: string; inviteCode: string; ip: string; nickName?: string }): Promise<User> {
+    function checkInviteCode(skip = false) {
+      // 跳过邀请码检查
+      if (skip) {
+        return () => undefined;
+      }
+      // 来自于公共邀请码
+      if (CONFIG.user.inviteCodes.includes(inviteCode)) {
+        return (data: UserData) => (data.extend.source = "system");
+      }
+      const { available, issuer } = InviteCodes.test(inviteCode);
+      if (available) {
+        InviteCodes.invalidate(inviteCode);
+        if (issuer == "system") {
+          // 来自于系统临时邀请码
+          return (data: UserData) => (data.extend.source = "system");
+        }
+        const inviter = USERS.get(issuer);
+        if (CONFIG.user.userInviteCode && !inviter.readonly && inviter.banned < Date.now()) {
+          // 允许用户邀请码；邀请用户未被锁定；邀请用户未被封禁
+          return (data: UserData) => (data.extend.source = issuer);
+        }
+      }
+      // 邀请码检查全部失败
+      throw new ErrorResponse("ForbiddenOperation", `Invalid inviteCode.`);
+    }
     if (!username || !password) {
       throw new ErrorResponse("BadOperation", "Username and pasowrd is both required.");
     }
     User.userInfoCheck(username, password, nickName);
-    const rawUsr: Partial<UserData> = {
-      username: username,
-      nickName: nickName ? nickName : username,
-      profiles: [],
+    const id = Utils.uuid();
+    const data: UserData = {
+      id,
+      role: undefined,
+      salt: undefined,
+      cert: { privkey: "string", expiresAt: 0 },
       regIP: ip,
-      extend: { source: null, inviteCode: null },
+      extend: { source: null },
+      banned: 0,
+      regTime: Date.now(),
+      profiles: [],
+      username,
+      nickName: nickName ? nickName : username,
+      password: undefined,
+      rescueCode: undefined,
+      readonly: false,
+      pubExtends: {},
+      properties: [{ name: "preferredLanguage", value: "zh_CN" }],
+      maxProfileCount: CONFIG.user.maxProfileCount,
+      remainingInviteCodeCount: CONFIG.user.defaultInviteCodeCount,
     };
-    if (USERSMAP.size == 0) {
-      //第一个用户默认成为admin，跳过邀请码检查
-      rawUsr.role = "admin";
-      rawUsr.extend.source = "system";
-    } else {
-      const officialInviteCodes = CONFIG.user.inviteCodes || [], //公共邀请码列表
-        userInviteCodes = new Map(); //用户邀请码列表
-      for (const user of USERSMAP.values()) {
-        if (CONFIG.user.disableUserInviteCode == false) {
-          //没有禁止使用用户邀请码注册
-          userInviteCodes.set(user.extend.inviteCode, user.id);
-        }
-      }
-      //进行邀请码检查。
-      if (officialInviteCodes.includes(inviteCode)) {
-        //来自于公共邀请码
-        rawUsr.extend.source = "system";
-      } else if (TempInviteCodes.test(inviteCode)) {
-        //来自于系统临时邀请码
-        rawUsr.extend.source = "system";
-        TempInviteCodes.invalidate(inviteCode);
-      } else if (userInviteCodes.has(inviteCode)) {
-        //来自于用户邀请码
-        const inviter = userInviteCodes.get(inviteCode);
-        if (USERSMAP.get(inviter).banned > new Date().getTime()) {
-          //该邀请码的所有者被封禁
-          throw new ErrorResponse("ForbiddenOperation", "The user that owned this inviteCode is under ban.");
-        }
-        if (USERSMAP.get(inviter).readonly) {
-          //该邀请码的所有者是只读账户
-          throw new ErrorResponse("ForbiddenOperation", `Invalid inviteCode: ${inviteCode}`);
-        }
-        if (!ACCESSCONTROLLER.test(inviteCode, CONFIG.user.inviteCodeUseRateLimit * 1e3)) {
-          //邀请码尚处于使用冷却时间内
-          throw new ErrorResponse("ForbiddenOperation", "This inviteCode is temporarily unavailable.");
-        }
-        rawUsr.extend.source = inviter;
-      } else {
-        //邀请码检查全部失败
-        throw new ErrorResponse("ForbiddenOperation", `Invalid inviteCode: ${inviteCode ? inviteCode : "No inviteCode provided."}`);
-      }
+    // 第一个用户默认成为admin
+    if (USERS.size == 0) {
+      data.role = "admin";
+      data.extend.source = "system";
     }
-    rawUsr.id = Utils.uuid();
-    const user = new User(rawUsr);
+    // 检查邀请码
+    checkInviteCode(USERS.size == 0)(data);
+    // 添加数据
+    USERS.add(data);
+    // 获得用户对象实例
+    const user = USERS.get(id);
+    // 添加密码
     user.passwdHash(password).apply();
-    user.extend.inviteCode = parseInt(
-      crypto
-        .createHash("shake256", { outputLength: 4 })
-        .update(user.id + user.regIP + user.password)
-        .digest("hex"),
-      16
-    ).toString(36);
-    ACCESSCONTROLLER.test(user.extend.inviteCode, CONFIG.user.inviteCodeUseRateLimit * 1e3); //新用户的邀请码默认处于冷却状态
-    USERSMAP.set([user.username, user.id], user);
-    await user.save();
+    // 新用户的邀请码默认处于冷却状态
+    ACCESSCONTROLLER.test(`${id}.inviteCode`, Utils.parseTimeString(CONFIG.user.keyOpRateLimit));
     return user;
   }
   /**
@@ -170,24 +173,24 @@ export default class User implements UserData {
    * @param newPass 新的密码
    * @returns Response
    */
-  static async resetPass(userId: string, rescueCode: string, newPass: string): Promise<SuccessResponse<undefined> | ErrorResponse> {
-    if (!USERSMAP.has(userId)) {
-      //该用户不存在
-      throw new ErrorResponse("BadOperation", `Invalid user.`);
+  static async resetPass(userId: string, rescueCode: string, newPass: string): Promise<User> {
+    if (!USERS.has(userId)) {
+      // 该用户不存在
+      throw new ErrorResponse("NotFound", `Invalid user.`);
     }
-    const user = USERSMAP.get(userId);
+    const user = USERS.get(userId);
     user.checkReadonly();
     if (!user.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "The user hasn't generated any rescueCode, so you can't reset the password.");
+      throw new ErrorResponse("ForbiddenOperation", "The user hasn't generated any rescue code, so you can't reset the password.");
     }
     if (Utils.sha256(rescueCode) != user.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "Wrong rescueCode.");
+      throw new ErrorResponse("ForbiddenOperation", "Invalid rescue code.");
     }
     User.userInfoCheck(undefined, newPass, undefined, user);
-    user.passwdHash(newPass).apply();
+    user.logout();
     user.rescueCode = null;
-    await user.save();
-    return new SuccessResponse(undefined, 204);
+    user.passwdHash(newPass).apply();
+    return user;
   }
   /**
    * 用户认证
@@ -196,23 +199,26 @@ export default class User implements UserData {
    * @returns {User}
    */
   static authenticate(username: string, password: string): User {
-    let user: User;
-    if (USERSMAP.has(username)) {
-      //用户存在，使用用户名登录
-      user = USERSMAP.get(username);
-    } else if (CONFIG.features.non_email_login && PROFILEMAP.has(username)) {
-      //用户使用了角色名登录
-      user = USERSMAP.get(PROFILEMAP.get(username).owner);
-    } else {
-      //不存在的用户名
+    function findUser() {
+      // 用户存在，使用用户名登录
+      if (USERS.has(username)) {
+        return USERS.get(username);
+      }
+      // 用户使用了角色名登录
+      if (CONFIG.features.non_email_login && PROFILES.has(username)) {
+        const matchedProfile = PROFILES.get(username);
+        return USERS.get(matchedProfile.owner);
+      }
+      // 不存在的用户名
       throw new ErrorResponse("ForbiddenOperation", "Invalid credentials. Invalid username or password.");
     }
-    if (user.banned > new Date().getTime()) {
-      //用户已被封禁
+    const user = findUser();
+    if (user.banned > Date.now()) {
+      // 用户已被封禁
       throw new ErrorResponse("ForbiddenOperation", `User is banned: ${username} . Expected to unban at ${new Date(user.banned).toLocaleString()}`);
     }
     if (!user.checkPasswd(password)) {
-      //用户提供的密码错误
+      // 用户提供的密码错误
       throw new ErrorResponse("ForbiddenOperation", "Invalid credentials. Invalid username or password.");
     }
     return user;
@@ -227,52 +233,51 @@ export default class User implements UserData {
    */
   static userInfoCheck(username?: string, password?: string, nickName?: string, origin?: User): true {
     if (origin) {
-      //不能对只读账户进行更改
+      // 不能对只读账户进行更改
       origin.checkReadonly();
     }
     if (username) {
-      if (USERSMAP.has(username)) {
-        //用户名已被占用
-        throw new ErrorResponse("ForbiddenOperation", `Username is not avaliable: ${username}`);
+      if (USERS.has(username)) {
+        // 用户名已被占用
+        throw new ErrorResponse("BadOperation", `Username is not avaliable: ${username}`);
       }
       if (!/^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+$/.test(username)) {
-        //用户名不符合邮箱格式要求
+        // 用户名不符合邮箱格式要求
         throw new ErrorResponse("IllegalArgument", "The username must fit to email address format.");
       }
-      if (username.length >= 60) {
+      if (username.length >= 50) {
         throw new ErrorResponse("BadOperation", "Provided username is too loooooog.");
-      }
-      if (origin && username == origin.username) {
-        //新用户名和旧用户名相同
-        throw new ErrorResponse("BadOperation", "New username is same to the old.");
       }
     }
     if (password) {
-      //提供了待检查的密码
+      // 提供了待检查的密码
       if (password.length < CONFIG.user.passLenLimit) {
-        //密码太短
+        // 密码太短
         throw new ErrorResponse("BadOperation", "The password provided is too short.");
       }
       if (origin && origin.checkPasswd(password)) {
-        //新密码和旧密码相同
+        // 新密码和旧密码相同
         throw new ErrorResponse("BadOperation", "The new password is the same as the old password.");
       }
     }
     if (nickName) {
-      if (nickName.length >= 30) {
+      if (nickName.length >= 50) {
         throw new ErrorResponse("BadOperation", "Provided nickName is too loooooog.");
       }
     }
     return true;
   }
-  /** * 保存用户信息 */
-  async save() {
-    USERSMAP.delete(this.id);
-    USERSMAP.set([this.username, this.id, ...this.profiles], this);
-    USERS[this.id] = this.export;
-    SALTS[this.id] = this.salt;
-    await JSONFile.save(USERS);
-    await JSONFile.save(SALTS);
+  static async deleteUser(userId: uuid) {
+    if (!USERS.has(userId)) {
+      // 该用户不存在
+      throw new ErrorResponse("NotFound", `Invalid user.`);
+    }
+    const user = USERS.get(userId);
+    if (user.role == "admin") {
+      throw new ErrorResponse("ForbiddenOperation", "Unable to delete admin user account.");
+    }
+    user.checkReadonly();
+    user.logout();
   }
   /**
    * 计算密码hash值。
@@ -280,19 +285,23 @@ export default class User implements UserData {
    * @param salt 盐值。不提供则为随机生成。
    */
   passwdHash(input: string, salt = Utils.sha256(Utils.uuid())): { salt: string; hash: string; apply: () => void } {
+    function generateHash() {
+      if (CONFIG.user.passwdHashType == "HMACsha256") {
+        return crypto.createHmac("sha256", salt).update(input).digest("hex");
+      }
+      return Utils.sha256(input);
+    }
     if (!["sha256", "HMACsha256"].includes(CONFIG.user.passwdHashType)) {
       throw new Error(`未知的 passwdHashType: ${CONFIG.user.passwdHashType}`);
     }
-    let hash = Utils.sha256(input);
-    if (CONFIG.user.passwdHashType == "HMACsha256") {
-      hash = crypto.createHmac("sha256", salt).update(input).digest("hex");
-    }
+    const hash = generateHash();
     return {
       hash,
       salt,
       apply: () => {
         this.password = hash;
         this.salt = salt;
+        SALTS[this.id] = this.salt;
       },
     };
   }
@@ -312,95 +321,100 @@ export default class User implements UserData {
    * @param nickName 新的昵称
    * @returns
    */
-  async setUserInfo(username?: string, password?: string, nickName?: string): Promise<User> {
+  setUserInfo(username?: string, password?: string, nickName?: string): User {
     this.checkReadonly();
     User.userInfoCheck(username, password, nickName, this);
     if (username) this.username = username;
+    if (nickName) this.nickName = nickName;
     if (password) {
       this.passwdHash(password).apply();
-      for (let token of this.tokens) {
-        Token.invalidate(token);
-      }
-    }
-    if (nickName) {
-      this.nickName = nickName;
-    }
-    if (username || password || nickName) {
-      await this.save();
+      this.logout();
     }
     return this;
   }
   /** 生成救援代码 */
-  async getRescueCode() {
+  generateRescueCode() {
     this.checkReadonly();
     if (this.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "Your rescueCode was generated and can't be provided again unless you reset your password.");
+      throw new ErrorResponse("ForbiddenOperation", "Your rescue code was generated and can't be provided again unless you reset your password.");
     }
-    const rescueCode = parseInt(
-      crypto
-        .createHash("shake256", { outputLength: 4 })
-        .update(this.id + this.password + new Date().getTime())
-        .digest("hex"),
-      16
-    ).toString(36);
+    const rescueCodeHex = crypto
+      .createHash("shake256", { outputLength: 4 })
+      .update(this.id + this.password + Date.now())
+      .digest("hex");
+    const rescueCode = parseInt(rescueCodeHex, 16).toString(36);
     this.rescueCode = Utils.sha256(rescueCode);
-    await this.save();
     return rescueCode;
   }
+  generateInviteCode() {
+    this.checkReadonly();
+    InviteCodes.clear();
+    if (!ACCESSCONTROLLER.test(`${this.id}.inviteCode`, Utils.parseTimeString(CONFIG.user.keyOpRateLimit))) {
+      // 邀请码尚处于使用冷却时间内
+      throw new ErrorResponse("ForbiddenOperation", "Can't generate inviteCode now.");
+    }
+    // 申请邀请码时，立即减少剩余邀请码数量
+    this.remainingInviteCodeCount--;
+    return InviteCodes.issue(this.id);
+  }
   /** 使账户成为只读状态 */
-  async makeReadonly() {
+  makeReadonly() {
     if (this.role == "admin") {
       throw new ErrorResponse("ForbiddenOperation", "Unable to lock admin user account.");
     }
     this.checkReadonly();
     this.readonly = true;
-    await this.save();
   }
   /** 删除账户 */
-  async remove() {
+  async deleteAccount() {
     if (this.role == "admin") {
       throw new ErrorResponse("ForbiddenOperation", "Unable to delete admin user account.");
     }
     this.checkReadonly();
-    this.signout();
-    await this.removeProfile();
-    USERSMAP.delete(this.id);
-    delete USERS[this.id];
-    await JSONFile.save(USERS);
+    this.logout();
+    await this.deleteProfile();
+    USERS.delete(this.id);
   }
   /**
    * 删除角色
    * @param profileIds 要删除的角色的id。若不提供则为删除所有角色
    */
-  async removeProfile(...profileIds: uuid[]) {
-    this.checkReadonly();
-    let targets = [...this.profiles].filter((i) => profileIds.includes(i)) || this.profiles;
-    await Profile.deleteProfile(...targets);
+  async deleteProfile(...profileIds: uuid[]) {
+    const targets = [...this.profiles].filter((i) => profileIds.includes(i)) || this.profiles;
+    const tasks = targets.map((profileId) =>
+      (async () => {
+        const profile = PROFILES.get(profileId);
+        await profile.textureManager().deleteTexture("all");
+        PROFILES.delete(profileId);
+        this.profiles.splice(this.profiles.indexOf(profileId), 1);
+      })()
+    );
+    await Promise.allSettled(tasks);
   }
   /**
    * 封禁用户
-   * @param duration (分钟。默认:60min) 封禁时长。多次封禁时长不累加。将此参数设为 0 可以视为执行了解除封禁
+   * @param duration 封禁时长。多次封禁时长不累加。将此参数设为 0 可以视为执行了解除封禁
    */
-  async ban(duration: number = 60) {
-    const now = new Date().getTime();
-    this.banned = now + (duration > 0 ? duration : 0) * 6e4;
-    this.signout();
-    await this.save();
+  ban(duration: number) {
+    const now = Date.now();
+    if (this.role == "admin") {
+      throw new ErrorResponse("ForbiddenOperation", "Unable to ban admin user account.");
+    }
+    this.banned = now + duration;
+    this.logout();
   }
   /** 为用户创建和更新加密证书对 */
   async getUserPrivKey(): Promise<{ privkey: KeyObject; expiresAt: number }> {
+    /** 在24小时内有效 */
+    const avaliableIn = 8.64e7;
     const { expiresAt = 0 } = this.cert || {};
-    const now = new Date().getTime();
+    const now = Date.now();
     if (now > expiresAt) {
       const { privateKey } = await Utils.getRSAKeyPair();
-      this.cert = {
-        privkey: Utils.keyRepack(privateKey),
-        expiresAt: now + 8.64e7,
-      };
-      await this.save();
+      this.cert = { privkey: Utils.keyRepack(privateKey), expiresAt: now + avaliableIn };
       return {
         privkey: privateKey,
-        expiresAt: now,
+        expiresAt: now + avaliableIn,
       };
     }
     return {
@@ -408,8 +422,20 @@ export default class User implements UserData {
       expiresAt: this.cert.expiresAt,
     };
   }
+  /** 重置管理员密码 */
+  async adminResetPasswd() {
+    if (this.role != "admin") return;
+    const passwordFilePath = pathOf("admin-password.json");
+    const passwordFileContent = await Utils.readJSON<{ password: string }>(passwordFilePath);
+    const { password } = passwordFileContent.asObject().data;
+    if (password) {
+      this.setUserInfo(undefined, password);
+      await fs.unlink(passwordFilePath);
+      pinoLogger.info("从 admin-password.json 重置了管理员密码。请注意该文件是否已被删除。");
+    }
+  }
   /** 检测账户是否为只读状态 */
-  checkReadonly(): boolean {
+  checkReadonly(): true {
     if (this.readonly) {
       throw new ErrorResponse("ForbiddenOperation", "This user is now readonly, can't modify or delete.");
     }
@@ -419,30 +445,31 @@ export default class User implements UserData {
    * 注销登录
    * @param tokens 要注销的token。若不提供则为注销所有登录
    */
-  signout(...tokens: uuid[]) {
-    for (let token of tokens.length > 0 ? [...this.tokens].filter((i) => tokens.includes(i)) : this.tokens) {
-      Token.invalidate(token);
-    }
+  logout(...tokens: uuid[]) {
+    const invalidateList = tokens.length > 0 ? [...this.tokens].filter((i) => tokens.includes(i)) : this.tokens;
+    invalidateList.forEach((token: string) => Token.invalidate(token));
   }
   /** 导出用户信息 */
   get export(): UserData {
     return {
       id: this.id,
+      salt: undefined,
+      role: this.role,
+      cert: this.cert,
+      regIP: this.regIP,
+      banned: this.banned,
+      extend: this.extend,
+      regTime: this.regTime,
+      nickName: this.nickName,
+      profiles: this.profiles,
+      readonly: this.readonly,
       username: this.username,
       password: this.password,
       rescueCode: this.rescueCode,
-      nickName: this.nickName,
-      profiles: this.profiles,
-      regTime: this.regTime,
-      regIP: this.regIP,
-      role: this.role,
-      banned: this.banned,
-      readonly: this.readonly,
-      cert: this.cert,
-      extend: this.extend,
       pubExtends: this.pubExtends,
       properties: this.properties,
-      salt: undefined,
+      maxProfileCount: this.maxProfileCount,
+      remainingInviteCodeCount: this.remainingInviteCodeCount,
     };
   }
   /** 导出对外暴露的用户信息 */
@@ -454,20 +481,21 @@ export default class User implements UserData {
   }
   /**导出符合 yggdrasil API 格式的角色信息列表 */
   get yggdrasilProfiles(): PublicProfileData[] {
-    const list = [];
-    for (const profile of this.profiles) {
-      list.push(PROFILEMAP.get(profile).getYggdrasilData());
-    }
-    return list;
+    return this.profiles
+      .map((profileId) => {
+        const profile = PROFILES.data.find(PROFILES.compareFunc(profileId));
+        return profile?.getYggdrasilData();
+      })
+      .filter((i) => i);
   }
   /** 导出公共可见的用户数据 */
   get publicUserData(): PublicUserData {
     return {
       id: this.id,
-      nickName: this.nickName,
-      regTime: this.regTime,
       role: this.role,
       banned: this.banned,
+      regTime: this.regTime,
+      nickName: this.nickName,
       readonly: this.readonly,
       pubExtends: this.pubExtends,
       properties: this.properties || [],
@@ -475,13 +503,14 @@ export default class User implements UserData {
   }
   /** 导出私人可见的用户数据 */
   get privateUserData(): PrivateUserData {
-    const publicData = this.publicUserData;
-    return Object.assign(publicData, {
-      username: this.username,
-      regIP: this.regIP,
-      profiles: this.profiles,
+    return Object.assign({}, this.publicUserData, {
       cert: this.cert,
+      regIP: this.regIP,
       extend: this.extend,
+      username: this.username,
+      profiles: this.profiles,
+      maxProfileCount: this.maxProfileCount,
+      remainingInviteCodeCount: this.remainingInviteCodeCount,
     });
   }
 }

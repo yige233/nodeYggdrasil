@@ -1,20 +1,20 @@
-import { CONFIG, PROFILEMAP, TOKENSMAP, USERSMAP } from "../global.js";
+import { CONFIG, PROFILES, TOKENSMAP, USERS } from "../global.js";
 import { uuid, TokenStatus, PublicProfileData } from "./interfaces.js";
 import User from "./user.js";
 import Utils, { ErrorResponse } from "./utils.js";
 
 /** 令牌 */
 export default class Token {
-  /** 令牌的 accessToken */
-  readonly accessToken: string;
-  /** 令牌的 clientToken */
-  readonly clientToken: string;
+  /** 使用该令牌的用户 */
+  readonly owner: User;
   /** 该令牌使用的角色uuid */
   readonly profile?: uuid;
   /** 该令牌申请的时间 */
   readonly issuedTime: number;
-  /** 使用该令牌的用户 */
-  readonly owner: User;
+  /** 令牌的 accessToken */
+  readonly accessToken: string;
+  /** 令牌的 clientToken */
+  readonly clientToken: string;
   /** 该令牌是否强制暂时失效 */
   forcedTvalid: boolean;
   /**
@@ -25,14 +25,18 @@ export default class Token {
    */
   constructor(clientToken: string, owner: uuid, profile?: uuid) {
     const accessToken = Utils.uuid();
-    const user = USERSMAP.get(owner);
+    const user = USERS.get(owner);
+    this.owner = user;
+    this.issuedTime = Date.now();
     this.accessToken = accessToken;
     this.clientToken = clientToken;
-    this.owner = user;
-    this.issuedTime = new Date().getTime();
     this.forcedTvalid = false;
     if (user.profiles.length == 1) this.profile = user.profiles[0];
     if (profile) this.profile = profile;
+    // 最多10个登录会话，若超出则删除最早的那个
+    if (user.tokens.size >= 10) {
+      user.tokens.delete([...user.tokens][0]);
+    }
     TOKENSMAP.set(accessToken, this);
     user.tokens.add(accessToken);
   }
@@ -44,8 +48,8 @@ export default class Token {
    * @returns {Token}
    */
   static refresh(accessToken: uuid, clientToken?: string, profileId?: uuid): Token {
+    // 令牌不存在
     if (!TOKENSMAP.has(accessToken)) {
-      //令牌不存在
       throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
     }
     const token: Token = TOKENSMAP.get(accessToken);
@@ -58,23 +62,23 @@ export default class Token {
    * @returns {Token}
    */
   refresh(clientToken?: string, profileId?: uuid): Token {
+    // 令牌验证失效
     if (this.validate(clientToken) == "invalid") {
-      //令牌验证失效
       throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
     }
+    // 存在 profileId, 是选择角色的操作
     if (profileId) {
-      //存在 profileId, 是选择角色的操作
+      // 该令牌已经绑定了角色
       if (this.profile) {
-        //该令牌已经绑定了角色
         throw new ErrorResponse("IllegalArgument", "Access token already has a profile assigned.");
       }
-      if (!PROFILEMAP.has(profileId)) {
-        //不存在要选择的角色
+      // 不存在要选择的角色
+      if (!PROFILES.has(profileId)) {
         throw new ErrorResponse("IllegalArgument", "Invalid Profile.");
       }
-      const profile = PROFILEMAP.get(profileId);
+      const profile = PROFILES.get(profileId);
+      // 该角色不属于该用户
       if (profile.owner != this.owner.id) {
-        //该角色不属于该用户
         throw new ErrorResponse("ForbiddenOperation", "No ownership of this profile.");
       }
     }
@@ -89,8 +93,8 @@ export default class Token {
    * @returns {TokenStatus}
    */
   static validate(accessToken: uuid, clientToken?: string, owner?: uuid): TokenStatus {
+    // 令牌不存在
     if (!TOKENSMAP.has(accessToken)) {
-      //令牌不存在
       return "invalid";
     }
     const token: Token = TOKENSMAP.get(accessToken);
@@ -103,24 +107,26 @@ export default class Token {
    * @returns {TokenStatus}
    */
   validate(clientToken?: string, owner?: uuid): TokenStatus {
+    // 指定了客户端token但该token无效
     if (clientToken && this.clientToken != clientToken) {
-      //指定了客户端token但该token无效
       return "invalid";
     }
+    // 指定了令牌所有者，但所有者不符
     if (owner && owner != this.owner.id) {
-      //指定了令牌所有者，但所有者不符
       return "invalid";
     }
+    // 令牌被设置为强制暂时失效状态
     if (this.forcedTvalid) {
-      //令牌被设置为强制暂时失效状态
       return "Tvalid";
     }
-    const validityPeriod = CONFIG.user.tokenValidityPeriod;
-    const now = new Date().getTime();
-    if (now < this.issuedTime + validityPeriod * 36e5) {
-      //当现在时间小于令牌颁发时间+过期时间，说明令牌有效或暂时失效
-      if (now < this.issuedTime + validityPeriod * 18e5) {
-        //当现在时间小于令牌颁发时间+过期时间的一半，说明令牌有效
+    const validityPeriod = Utils.parseTimeString(CONFIG.user.tokenValidityPeriod);
+    /** 保证令牌有效期至少为30秒，避免出现意外修改成很小的数字，导致令牌瞬间失效 */
+    const appliedPeriod = validityPeriod > 3e4 ? validityPeriod : 3e4;
+    const now = Date.now();
+    // 当现在时间小于令牌颁发时间+过期时间，说明令牌有效或暂时失效
+    if (now < this.issuedTime + appliedPeriod) {
+      // 当现在时间小于令牌颁发时间+过期时间的一半，说明令牌有效
+      if (now < this.issuedTime + appliedPeriod) {
         return "valid";
       }
       return "Tvalid";
@@ -134,8 +140,8 @@ export default class Token {
    * @returns {boolean}
    */
   static invalidate(accessToken: uuid): boolean {
+    // 令牌不存在
     if (!TOKENSMAP.has(accessToken)) {
-      //令牌不存在
       return false;
     }
     const token: Token = TOKENSMAP.get(accessToken);
@@ -152,7 +158,7 @@ export default class Token {
   }
   /**导出符合 yggdrasil API 格式的单个角色信息 */
   get yggdrasilProfile(): PublicProfileData {
-    if (!this.profile || !PROFILEMAP.has(this.profile)) return null;
-    return PROFILEMAP.get(this.profile).getYggdrasilData();
+    if (!this.profile || !PROFILES.has(this.profile)) return null;
+    return PROFILES.get(this.profile).getYggdrasilData();
   }
 }
