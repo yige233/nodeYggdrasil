@@ -25,7 +25,7 @@ export const UserServices = {
       return new SuccessResponse(user.publicUserData);
     }
   },
-  async update(request: FastifyRequest<{ Params: { uuid: uuid }; Body: { username?: string; password?: string; nickName?: string; maxProfileCount: number } }>) {
+  async update(request: FastifyRequest<{ Params: { uuid: uuid }; Body: { username?: string; password?: string; nickName?: string; maxProfileCount?: number } }>) {
     const uuid: uuid = request.params.uuid,
       { username, password, nickName, maxProfileCount } = request.body || {};
     if (maxProfileCount) {
