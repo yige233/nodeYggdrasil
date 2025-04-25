@@ -1,7 +1,7 @@
 import net from "node:net";
 import { PublicProfileData, uuid } from "./interfaces.js";
 import Token from "./token.js";
-import Utils, { ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse, Time } from "./utils.js";
 import { CONFIG, OFFICIALPLAYERLIST, PROFILES, SESSIONMAP, TOKENSMAP } from "../global.js";
 import User from "./user.js";
 
@@ -54,7 +54,7 @@ export default class Session {
     }
     const session = SESSIONMAP.get(serverId);
     // 该id对应的会话已过期（超过30秒）
-    if (Date.now() > session.issuedTime + 3e4) {
+    if (Date.now() > Time.parse(session.issuedTime, "30s")) {
       SESSIONMAP.delete(serverId);
       throw false;
     }
@@ -81,8 +81,8 @@ export default class Session {
    */
   static async hasJoinedProxy(username: string, serverId: string, ip?: string): Promise<[PublicProfileData, "official"]> {
     const url = new URL(`https://sessionserver.mojang.com/session/minecraft/hasJoined?username=${username}&serverId=${serverId}`);
-    // 没有启用兼容正版验证，或者提供的用户名含有中文字符 (肯定过不了官方验证)
-    if (!CONFIG.user.officialProxy || /[\u4e00-\u9fa5]/.test(username)) {
+    // 没有启用兼容正版验证，或者提供的用户名不符合官方的限制 (肯定过不了官方验证)
+    if (!CONFIG.user.officialProxy || !/^[0-9a-z_]{1,16}$/i.test(username)) {
       throw false;
     }
     // 如果有需要验证ip
@@ -113,20 +113,20 @@ export default class Session {
   static issue(accessToken: uuid, selectedProfile: uuid, serverId: string, ip: string): void {
     // 令牌无效或暂时失效
     if (Token.validate(accessToken) != "valid") {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
     }
     // 选择的角色id无效
     if (!PROFILES.has(selectedProfile)) {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid Profile.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的角色。");
     }
     const token = TOKENSMAP.get(accessToken);
     // 令牌没有绑定的角色
     if (!token.profile) {
-      throw new ErrorResponse("ForbiddenOperation", "Access token has no profile assigned.");
+      throw new ErrorResponse("ForbiddenOperation", "令牌尚未绑定任何角色。");
     }
     // 角色id不匹配
     if (PROFILES.get(token.profile).id != selectedProfile) {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid Profile.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的角色。");
     }
     new Session(accessToken, selectedProfile, serverId, ip);
   }
@@ -156,11 +156,11 @@ export default class Session {
   static async joinWithXbox(identityToken: string): Promise<{ access_token: string; username: string; user?: User }> {
     const { username, error, errorMessage, access_token } = await Utils.fetch("https://api.minecraftservices.com/authentication/login_with_xbox", {
       method: "POST",
-      fallback: { errorMessage: "unknown error." },
+      fallback: { errorMessage: "未知错误" },
       json: { identityToken },
     });
     if (error || errorMessage) {
-      throw new ErrorResponse("Unauthorized", "Fetch error: " + error || errorMessage);
+      throw new ErrorResponse("Unauthorized", "登录Xbox失败: " + error || errorMessage);
     }
     if (PROFILES.has(username)) {
       const profile = PROFILES.get(username);
@@ -174,7 +174,7 @@ export default class Session {
       }
       throw false;
     } catch {
-      throw new ErrorResponse("Unauthorized", "The MS Account are not associated with any profile.");
+      throw new ErrorResponse("Unauthorized", "该微软账号未绑定任何角色。");
     }
   }
 }

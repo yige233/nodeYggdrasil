@@ -2,7 +2,7 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import { ErrorResponse, SuccessResponse } from "../libs/utils.js";
 import User from "../libs/user.js";
 import { MinimumUserData, RequestSignout, uuid } from "../libs/interfaces.js";
-import { CONFIG, USERS, WEBHOOK } from "../global.js";
+import { CONFIG, USERS, WEBHOOK, Settings } from "../global.js";
 
 interface newUserBody {
   username: string;
@@ -14,9 +14,8 @@ interface newUserBody {
 export const UserServices = {
   get(request: FastifyRequest<{ Params: { uuid: uuid } }>) {
     const uuid: uuid = request.params.uuid;
-    // 用户不存在
     if (!USERS.has(uuid)) {
-      throw new ErrorResponse("NotFound", "User not found.");
+      throw new ErrorResponse("NotFound", "用户不存在。");
     }
     const user = USERS.get(uuid);
     try {
@@ -32,13 +31,12 @@ export const UserServices = {
     if (maxProfileCount) {
       request.permCheck(uuid, undefined, true);
       const user = USERS.get(uuid);
-      if (!user) throw new ErrorResponse("NotFound", "User not found.");
+      if (!user) throw new ErrorResponse("NotFound", "用户不存在。");
       user.maxProfileCount = maxProfileCount;
       return new SuccessResponse(undefined, 204);
     }
     const { user } = request.permCheck(uuid);
-    // request.rateLim(user.id, "updateUserData", CONFIG.user.keyOpRateLimit);
-    request.rateLim(user.id, "updateUserData", CONFIG.server.keyReqRateLimit);
+    request.rateLim(user.id, "updateUserData", Settings.dev ? CONFIG.server.keyReqRL : CONFIG.user.keyOpRL);
     const resultUser = user.setUserInfo(username, password, nickName);
     return new SuccessResponse(resultUser.privateUserData);
   },
@@ -57,7 +55,7 @@ export const UserServices = {
     const user = User.authenticate(username, password);
     const webhookMessage = { nickName: user.nickName, id: user.id, ip: request.getIP() };
     if (user.id != uuid) {
-      throw new ErrorResponse("BadOperation", "Invalid userId.");
+      throw new ErrorResponse("BadOperation", "无效的用户。");
     }
     await user.deleteAccount();
     WEBHOOK.emit("user.delete", webhookMessage);
@@ -78,7 +76,7 @@ export const UserServices = {
   async resetPassword(request: FastifyRequest<{ Params: { uuid: uuid }; Body: { rescueCode: string; newPass: string } }>) {
     const uuid: uuid = request.params.uuid;
     // 重置密码的速率限制是30秒
-    request.rateLim(uuid, "resetPassword", 3e4);
+    request.rateLim(uuid, "resetPassword", "30s");
     const { rescueCode = null, newPass = null } = request.body;
     const user = await User.resetPass(uuid, rescueCode, newPass);
     WEBHOOK.emit("user.password.reset", { id: user.id, nickName: user.nickName, ip: request.getIP() });
@@ -92,7 +90,7 @@ export const UserServices = {
       user.remainingInviteCodeCount += request.body.addCount;
       return new SuccessResponse({ remainingInviteCodeCount: user.remainingInviteCodeCount });
     }
-    throw new ErrorResponse("NotFound", "User not found.");
+    throw new ErrorResponse("NotFound", "用户不存在。");
   },
   async queryUser(request: FastifyRequest<{ Querystring: { user: string; after: string; count: number } }>, reply: FastifyReply) {
     function findStartIndex() {
@@ -110,13 +108,13 @@ export const UserServices = {
         reply.send();
         return false;
       }
-      throw new ErrorResponse("NotFound", `The queried user '${username}' is not found.`);
+      throw new ErrorResponse("NotFound", `用户不存在：${username} 。`);
     }
     if (request.query.after) {
       request.permCheck(undefined, undefined, true);
       const count = request.query.count > 0 ? request.query.count : 10;
       if (count > 100) {
-        throw new ErrorResponse("BadOperation", "Parameter 'count' should less than 100.");
+        throw new ErrorResponse("BadOperation", "单次最多只能查询 100 个用户。");
       }
       const startIndex = findStartIndex();
       const list = USERS.data.map((user, index) => {
@@ -126,7 +124,7 @@ export const UserServices = {
       });
       return new SuccessResponse(list.filter((i) => i));
     }
-    throw new ErrorResponse("BadOperation", `Missing required parameters: 'user' or 'after'.`);
+    throw new ErrorResponse("BadOperation", `缺少如下参数: “user”或“after”。`);
   },
   async newUser(request: FastifyRequest<{ Body: newUserBody | newUserBody[] }>) {
     function getMaxRegisterCount() {

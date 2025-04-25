@@ -17,7 +17,7 @@ import {
   ResponseCertificates,
   ResponsePublicKeys,
 } from "../libs/interfaces.js";
-import Utils, { ErrorResponse, SuccessResponse } from "../libs/utils.js";
+import Utils, { ErrorResponse, SuccessResponse, Time } from "../libs/utils.js";
 import Session from "../libs/session.js";
 import Token from "../libs/token.js";
 import User from "../libs/user.js";
@@ -220,7 +220,7 @@ export const mcService = {
   /** 玩家聊天证书 */
   async getCertificates(request: FastifyRequest): Promise<SuccessResponse<ResponseCertificates>> {
     /** 证书过期时间为1天 */
-    const expireIn = 1.44e7;
+    const expireIn = Time.parse("1d");
     function publicKeySignatureV2(pubKey: KeyObject, uuid: uuid, expiresAt: number): Buffer {
       const timeBf = Buffer.alloc(8);
       timeBf.writeBigUInt64BE(BigInt(new Date(expiresAt).getTime()), 0);

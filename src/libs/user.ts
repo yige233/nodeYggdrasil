@@ -3,15 +3,15 @@ import fs from "fs/promises";
 import { USERS, CONFIG, ACCESSCONTROLLER, PROFILES, SALTS, pathOf, pinoLogger, InviteCodes } from "../global.js";
 import { UserData, uuid, MinimumUserData, PublicProfileData, PublicUserData, PrivateUserData } from "./interfaces.js";
 import Token from "./token.js";
-import Utils, { ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse, Time } from "./utils.js";
 
 export class InviteCode {
   codes: Map<string, { expiresAt: number; issuer: string }> = new Map();
   issue(issuer: string = "system"): string {
     /** 邀请码过期时间：半小时 */
-    const expireIn = 18e5;
+    const expireIn = Time.parse("30m");
     if (issuer != "system" && this.countOf(issuer) >= USERS.get(issuer).remainingInviteCodeCount) {
-      throw new ErrorResponse("ForbiddenOperation", "Can't issue more inviteCode.");
+      throw new ErrorResponse("ForbiddenOperation", "无法生成更多的邀请码。");
     }
     const code = parseInt(crypto.createHash("shake256", { outputLength: 4 }).update(Utils.uuid()).digest("hex"), 16).toString(36);
     this.codes.set(code, { expiresAt: Date.now() + expireIn, issuer });
@@ -121,11 +121,10 @@ export default class User implements UserData {
           return (data: UserData) => (data.extend.source = issuer);
         }
       }
-      // 邀请码检查全部失败
-      throw new ErrorResponse("ForbiddenOperation", `Invalid inviteCode.`);
+      throw new ErrorResponse("ForbiddenOperation", "无效的邀请码。");
     }
     if (!username || !password) {
-      throw new ErrorResponse("BadOperation", "Username and pasowrd is both required.");
+      throw new ErrorResponse("BadOperation", "请提供用户名和密码。");
     }
     User.userInfoCheck(username, password, nickName);
     const id = Utils.uuid();
@@ -133,7 +132,7 @@ export default class User implements UserData {
       id,
       role: undefined,
       salt: undefined,
-      cert: { privkey: "string", expiresAt: 0 },
+      cert: { privkey: "", expiresAt: 0 },
       regIP: ip,
       extend: { source: null },
       banned: 0,
@@ -163,7 +162,7 @@ export default class User implements UserData {
     // 添加密码
     user.passwdHash(password).apply();
     // 新用户的邀请码默认处于冷却状态
-    ACCESSCONTROLLER.test(`${id}.inviteCode`, Utils.parseTimeString(CONFIG.user.keyOpRateLimit));
+    ACCESSCONTROLLER.test(`${id}.inviteCode`, Time.parse(CONFIG.user.keyOpRL));
     return user;
   }
   /**
@@ -176,15 +175,15 @@ export default class User implements UserData {
   static async resetPass(userId: string, rescueCode: string, newPass: string): Promise<User> {
     if (!USERS.has(userId)) {
       // 该用户不存在
-      throw new ErrorResponse("NotFound", `Invalid user.`);
+      throw new ErrorResponse("NotFound", `无效的用户ID。`);
     }
     const user = USERS.get(userId);
     user.checkReadonly();
     if (!user.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "The user hasn't generated any rescue code, so you can't reset the password.");
+      throw new ErrorResponse("ForbiddenOperation", "用户未生成任何救援码，因此无法重置密码。");
     }
     if (Utils.sha256(rescueCode) != user.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid rescue code.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的救援码。");
     }
     User.userInfoCheck(undefined, newPass, undefined, user);
     user.logout();
@@ -210,16 +209,16 @@ export default class User implements UserData {
         return USERS.get(matchedProfile.owner);
       }
       // 不存在的用户名
-      throw new ErrorResponse("ForbiddenOperation", "Invalid credentials. Invalid username or password.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的用户名或密码。");
     }
     const user = findUser();
     if (user.banned > Date.now()) {
       // 用户已被封禁
-      throw new ErrorResponse("ForbiddenOperation", `User is banned: ${username} . Expected to unban at ${new Date(user.banned).toLocaleString()}`);
+      throw new ErrorResponse("ForbiddenOperation", `用户已被封禁: ${username} 。 预计于 ${new Date(user.banned).toLocaleString()} 解封。`);
     }
     if (!user.checkPasswd(password)) {
       // 用户提供的密码错误
-      throw new ErrorResponse("ForbiddenOperation", "Invalid credentials. Invalid username or password.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的用户名或密码。");
     }
     return user;
   }
@@ -239,45 +238,33 @@ export default class User implements UserData {
     if (username) {
       if (USERS.has(username)) {
         // 用户名已被占用
-        throw new ErrorResponse("BadOperation", `Username is not avaliable: ${username}`);
+        throw new ErrorResponse("BadOperation", `提供的用户名无效: ${username}`);
       }
       if (!/^[a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+$/.test(username)) {
         // 用户名不符合邮箱格式要求
-        throw new ErrorResponse("IllegalArgument", "The username must fit to email address format.");
+        throw new ErrorResponse("IllegalArgument", "用户名必须符合邮箱格式。");
       }
       if (username.length >= 50) {
-        throw new ErrorResponse("BadOperation", "Provided username is too loooooog.");
+        throw new ErrorResponse("BadOperation", "提供的用户名过长。");
       }
     }
     if (password) {
       // 提供了待检查的密码
       if (password.length < CONFIG.user.passLenLimit) {
         // 密码太短
-        throw new ErrorResponse("BadOperation", "The password provided is too short.");
+        throw new ErrorResponse("BadOperation", "提供的密码太短。");
       }
       if (origin && origin.checkPasswd(password)) {
         // 新密码和旧密码相同
-        throw new ErrorResponse("BadOperation", "The new password is the same as the old password.");
+        throw new ErrorResponse("BadOperation", "新密码和旧密码相同。");
       }
     }
     if (nickName) {
       if (nickName.length >= 50) {
-        throw new ErrorResponse("BadOperation", "Provided nickName is too loooooog.");
+        throw new ErrorResponse("BadOperation", "提供的昵称过长。");
       }
     }
     return true;
-  }
-  static async deleteUser(userId: uuid) {
-    if (!USERS.has(userId)) {
-      // 该用户不存在
-      throw new ErrorResponse("NotFound", `Invalid user.`);
-    }
-    const user = USERS.get(userId);
-    if (user.role == "admin") {
-      throw new ErrorResponse("ForbiddenOperation", "Unable to delete admin user account.");
-    }
-    user.checkReadonly();
-    user.logout();
   }
   /**
    * 计算密码hash值。
@@ -336,7 +323,7 @@ export default class User implements UserData {
   generateRescueCode() {
     this.checkReadonly();
     if (this.rescueCode) {
-      throw new ErrorResponse("ForbiddenOperation", "Your rescue code was generated and can't be provided again unless you reset your password.");
+      throw new ErrorResponse("ForbiddenOperation", "你的救援代码已经生成。除非重置密码，否则无法再次提供。");
     }
     const rescueCodeHex = crypto
       .createHash("shake256", { outputLength: 4 })
@@ -349,9 +336,9 @@ export default class User implements UserData {
   generateInviteCode() {
     this.checkReadonly();
     InviteCodes.clear();
-    if (!ACCESSCONTROLLER.test(`${this.id}.inviteCode`, Utils.parseTimeString(CONFIG.user.keyOpRateLimit))) {
+    if (!ACCESSCONTROLLER.test(`${this.id}.inviteCode`, Time.parse(CONFIG.user.keyOpRL))) {
       // 邀请码尚处于使用冷却时间内
-      throw new ErrorResponse("ForbiddenOperation", "Can't generate inviteCode now.");
+      throw new ErrorResponse("ForbiddenOperation", "无法生成邀请码。");
     }
     // 申请邀请码时，立即减少剩余邀请码数量
     this.remainingInviteCodeCount--;
@@ -360,7 +347,7 @@ export default class User implements UserData {
   /** 使账户成为只读状态 */
   makeReadonly() {
     if (this.role == "admin") {
-      throw new ErrorResponse("ForbiddenOperation", "Unable to lock admin user account.");
+      throw new ErrorResponse("ForbiddenOperation", "无法将管理员账户锁定。");
     }
     this.checkReadonly();
     this.readonly = true;
@@ -368,7 +355,7 @@ export default class User implements UserData {
   /** 删除账户 */
   async deleteAccount() {
     if (this.role == "admin") {
-      throw new ErrorResponse("ForbiddenOperation", "Unable to delete admin user account.");
+      throw new ErrorResponse("ForbiddenOperation", "无法删除管理员用户。");
     }
     this.checkReadonly();
     this.logout();
@@ -398,7 +385,7 @@ export default class User implements UserData {
   ban(duration: number) {
     const now = Date.now();
     if (this.role == "admin") {
-      throw new ErrorResponse("ForbiddenOperation", "Unable to ban admin user account.");
+      throw new ErrorResponse("ForbiddenOperation", "无法封禁管理员用户。");
     }
     this.banned = now + duration;
     this.logout();
@@ -406,7 +393,7 @@ export default class User implements UserData {
   /** 为用户创建和更新加密证书对 */
   async getUserPrivKey(): Promise<{ privkey: KeyObject; expiresAt: number }> {
     /** 在24小时内有效 */
-    const avaliableIn = 8.64e7;
+    const avaliableIn = Time.parse("24h");
     const { expiresAt = 0 } = this.cert || {};
     const now = Date.now();
     if (now > expiresAt) {
@@ -431,13 +418,13 @@ export default class User implements UserData {
     if (password) {
       this.setUserInfo(undefined, password);
       await fs.unlink(passwordFilePath);
-      pinoLogger.info("从 admin-password.json 重置了管理员密码。请注意该文件是否已被删除。");
+      pinoLogger.info(`从 ${passwordFilePath} 重置了管理员密码。请注意该文件是否已被删除。`);
     }
   }
   /** 检测账户是否为只读状态 */
   checkReadonly(): true {
     if (this.readonly) {
-      throw new ErrorResponse("ForbiddenOperation", "This user is now readonly, can't modify or delete.");
+      throw new ErrorResponse("ForbiddenOperation", "该账户为只读状态，无法修改或删除。");
     }
     return true;
   }

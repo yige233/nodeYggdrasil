@@ -111,3 +111,11 @@ export const pinoLogger = pino(
     },
   ])
 );
+
+export const Settings = {
+  // todo：
+  /** 防御模式。开启后，停用以下功能：使用账号密码登录（停止颁发新令牌，不影响刷新令牌）、新用户注册、找回密码、通过xbox账户登录；兼容正版登录时强制使用白名单； */
+  underAttack: false,
+  /** 开发模式 */
+  dev: process.env.DEV ? true : false,
+};

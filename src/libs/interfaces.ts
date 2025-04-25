@@ -64,7 +64,7 @@ export interface Config extends PublicConfig {
     /** 验证服务器注册页 */
     register: string;
     /** 关键请求速率限制。作用于影响账户安全的API和对服务器性能开销明显的API。 */
-    keyReqRateLimit: string;
+    keyReqRL: string;
     /** 服务端前面代理服务器的数量。如果存在 x-forwarded-for ，这个值决定了程序信任该头中的哪个ip */
     proxyCount: number;
     /** 是否信任 x-real-ip 头的值 */
@@ -77,13 +77,13 @@ export interface Config extends PublicConfig {
     /** 默认皮肤 */
     defaultSkinURL: string;
     /** 身份验证令牌过期时间 */
-    tokenValidityPeriod: string;
+    tokenTTL: string;
     /** 用户密码长度限制 */
     passLenLimit: number;
     /** 验证服务器公共注册邀请码。留空则视为不启用。 */
     inviteCodes: string[];
     /** 用户关键行为速率限制，包括使用邀请码、修改用户信息、为角色绑定微软账户 */
-    keyOpRateLimit: string;
+    keyOpRL: string;
     /** 是否启用默认皮肤(若禁用，无皮肤角色的profile里将不会包含默认皮肤的url) */
     defaultSkin: boolean;
     /** 是否启用用户邀请码 */

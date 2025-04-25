@@ -39,25 +39,21 @@ export default class Profile implements ProfileData {
    * @returns {Profile}
    */
   static async new(name: string, userId: uuid, offlineCompatible: boolean = false): Promise<Profile> {
-    // 指定的用户不存在
     if (!USERS.has(userId)) {
-      throw new ErrorResponse("BadOperation", `Invalid userId: ${userId}`);
+      throw new ErrorResponse("BadOperation", `指定的用户不存在: ${userId} 。`);
     }
-    // 不允许创建兼容离线模式的角色
     if (offlineCompatible && !CONFIG.user.offlineProfile) {
-      throw new ErrorResponse("ForbiddenOperation", "The server is not allowed to create offline compatible profile.");
+      throw new ErrorResponse("ForbiddenOperation", "不允许创建兼容离线模式的角色。");
     }
     const user = USERS.get(userId);
     user.checkReadonly();
-    // 用户所拥有的角色太多
     if (user.profiles.length > user.maxProfileCount) {
-      throw new ErrorResponse("ForbiddenOperation", "The user have too much profile.");
+      throw new ErrorResponse("ForbiddenOperation", "用户所拥有的角色太多。");
     }
     Profile.checkName(name);
     const id: uuid = offlineCompatible ? Utils.uuid(name) : Utils.uuid();
-    // 该角色名称对应的离线uuid已经被他人占用，请尝试换一个名称或取消勾选兼容离线模式
     if (PROFILES.has(id)) {
-      throw new ErrorResponse("ForbiddenOperation", "The offline uuid corresponding to the profileName has been occupied, please try to change the name or uncheck the compatible offline mode.");
+      throw new ErrorResponse("ForbiddenOperation", "该角色名称对应的离线uuid已经被他人占用。请尝试换一个名称，或取消勾选兼容离线模式。");
     }
     PROFILES.add({
       id,
@@ -79,21 +75,17 @@ export default class Profile implements ProfileData {
    * @returns {true}
    */
   static checkName(name: string): true {
-    // 没有提供角色名
     if (!name) {
-      throw new ErrorResponse("BadOperation", "The provided profile name is empty.");
+      throw new ErrorResponse("BadOperation", "请提供一个角色名。");
     }
-    // 该角色名称太长
     if (name.length > 30) {
-      throw new ErrorResponse("BadOperation", `The provided profile name is too loooooong.`);
+      throw new ErrorResponse("BadOperation", `提供的角色名称太长。`);
     }
-    // 该角色名称含有非数字、字母、汉字的字符
     if (!/^[_A-Za-z0-9\u4e00-\u9fa5]+$/.test(name)) {
-      throw new ErrorResponse("BadOperation", "The profile name contains illegal characters.");
+      throw new ErrorResponse("BadOperation", "角色名称非法：包含有非数字、字母、汉字的字符。");
     }
-    // 该角色名称已被使用
     if (PROFILES.has(name)) {
-      throw new ErrorResponse("ForbiddenOperation", `The provided profile name is not available: ${name}`);
+      throw new ErrorResponse("ForbiddenOperation", `该角色名称已被使用: ${name} 。`);
     }
     return true;
   }
@@ -118,7 +110,7 @@ export default class Profile implements ProfileData {
       },
     });
     if (!authToken) {
-      throw new ErrorResponse("BadOperation", "Invalid auth code.");
+      throw new ErrorResponse("BadOperation", "提供的 authCode 无效。(1/4)");
     }
     const {
       Token: xboxToken,
@@ -135,7 +127,7 @@ export default class Profile implements ProfileData {
       },
     });
     if (!xboxToken || !uhs) {
-      throw new ErrorResponse("BadOperation", "Failed to request xbox token.");
+      throw new ErrorResponse("BadOperation", "请求 xbox token 失败。(2/4)");
     }
     const { Token: xstsToken } = await Utils.fetch("https://xsts.auth.xboxlive.com/xsts/authorize", {
       method: "POST",
@@ -147,7 +139,7 @@ export default class Profile implements ProfileData {
       },
     });
     if (!xstsToken) {
-      throw new ErrorResponse("BadOperation", "Failed to request xbox XSTS token.");
+      throw new ErrorResponse("BadOperation", "请求 xbox XSTS token 失败。(3/4)");
     }
     const { username } = await Utils.fetch("https://api.minecraftservices.com/authentication/login_with_xbox", {
       method: "POST",
@@ -155,7 +147,7 @@ export default class Profile implements ProfileData {
       json: { identityToken: `XBL3.0 x=${uhs};${xstsToken}` },
     });
     if (!username) {
-      throw new ErrorResponse("BadOperation", "Failed to request ms account id.");
+      throw new ErrorResponse("BadOperation", "请求 MS Account ID 失败。(4/4)");
     }
     return username;
   }
@@ -167,22 +159,22 @@ export default class Profile implements ProfileData {
    */
   setValue<T>(propertyName: string, newValue: T): void {
     if (!(propertyName in this) || typeof this[propertyName] == "function") {
-      throw new ErrorResponse("InternalError", `Trying to access invalid property: ${propertyName}`);
+      throw new ErrorResponse("InternalError", `试图访问无效的属性: ${propertyName} 。`);
     }
     USERS.get(this.owner).checkReadonly();
     if (propertyName == "name") {
       if (!CONFIG.user.changeOfflineProfileName && Utils.uuid(this.originalName) == this.id) {
-        throw new ErrorResponse("ForbiddenOperation", "It is not allowed to change the name of an offline compatible profile.");
+        throw new ErrorResponse("ForbiddenOperation", "不允许修改“兼容离线模式的角色”的名称。");
       }
       Profile.checkName(newValue as string);
     }
     if (propertyName == "linkedMSUserId") {
       if (newValue) {
         if (PROFILES.has(newValue as string)) {
-          throw new ErrorResponse("ForbiddenOperation", "The MS account is already have a profile linked. Try to choose another account, or unlink the account first.");
+          throw new ErrorResponse("ForbiddenOperation", "该微软账号已经绑定了一个角色。请选择另一个账微软号，或先取消该账号的绑定。");
         }
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(newValue as string)) {
-          throw new ErrorResponse("BadOperation", "Invalid MS account id.");
+          throw new ErrorResponse("BadOperation", "提供的微软账号ID无效。");
         }
       }
     }

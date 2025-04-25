@@ -71,29 +71,29 @@ export default function textureManager(profile: Profile) {
     },
     setModel(model: "slim" | "default") {
       if (!profile.textures.SKIN) {
-        throw new ErrorResponse("BadOperation", "The pofile has no skin, can't change model.");
+        throw new ErrorResponse("BadOperation", "该角色没有皮肤，无法修改其模型。");
       }
       profile.textures.SKIN.metadata = { model };
     },
     async copyFromOfficial(profileName: string) {
       const { id, errorMessage }: { id: string; errorMessage: string } = await Utils.fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { fallback: {} });
       if (errorMessage) {
-        throw new ErrorResponse("BadOperation", `Error message from Mojang: ${errorMessage}`);
+        throw new ErrorResponse("BadOperation", `Mojang 服务器返回了如下的错误信息: ${errorMessage}`);
       }
       if (!id) {
-        throw new ErrorResponse("BadOperation", `The server is temporarily unable to connect to the Mojang API.`);
+        throw new ErrorResponse("BadOperation", `服务器暂时无法连接到 Mojang API 。(1/2)`);
       }
       const {
         properties: [{ value }],
       }: Partial<PublicProfileData> = await Utils.fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${id}`, { fallback: { properties: [] } });
       if (!value) {
-        throw new ErrorResponse("BadOperation", "The server is temporarily unable to connect to the Mojang API.");
+        throw new ErrorResponse("BadOperation", "服务器暂时无法连接到 Mojang API 。(2/2)");
       }
       const {
         textures: { SKIN, CAPE },
       }: Partial<TexturesData> = JSON.parse(Utils.decodeb64(value));
       if (!SKIN && !CAPE) {
-        throw new ErrorResponse("BadOperation", `This profile name has no skin or cape: ${profileName}.`);
+        throw new ErrorResponse("BadOperation", `该角色没有皮肤或披风: ${profileName}.`);
       }
       if (SKIN) {
         await setTexture("skin")(SKIN.url, SKIN.metadata?.model);
@@ -105,7 +105,7 @@ export default function textureManager(profile: Profile) {
     async importFromLittleskin(littleskinTid: string) {
       const { hash, type: textureType } = await Utils.fetch(`https://littleskin.cn/texture/${littleskinTid}`, { fallback: {} });
       if (!hash) {
-        throw new ErrorResponse("BadOperation", `This tid is invalid in LittleSkin: ${littleskinTid}, or the server is temporarily unable to connect to LittleSkin.`);
+        throw new ErrorResponse("BadOperation", `提供的皮肤ID无效: ${littleskinTid} ，或者是服务器暂时无法连接到 LittleSkin 。`);
       }
       const textureURL = `https://littleskin.cn/textures/${hash}`;
       if (textureType != "cape") {
@@ -116,12 +116,12 @@ export default function textureManager(profile: Profile) {
     async importFromOfficialURL(hash: string, textureType: model | "cape") {
       const matchedHash = hash.match(/[0-9a-f]{64}/i)?.[0] ?? null;
       if (!matchedHash) {
-        throw new ErrorResponse("BadOperation", "Invalid skin hash. No hash string found.");
+        throw new ErrorResponse("BadOperation", "提供的皮肤哈希字符串无效。");
       }
       const textureURL = `http://textures.minecraft.net/texture/${matchedHash}`;
       const officialResponse = await Utils.fetch(textureURL, { fallback: false });
       if (!officialResponse) {
-        throw new ErrorResponse("BadOperation", "Provided skin hash is invalid in Mojang, or the server is temporarily unable to connect to the Mojang API.");
+        throw new ErrorResponse("BadOperation", `提供的Mojang皮肤哈希无效: ${matchedHash} ，或者是服务器暂时无法连接到Mojang。`);
       }
       if (textureType != "cape") {
         return setTexture("skin")(textureURL, textureType);
@@ -165,7 +165,7 @@ export async function checkTexture(imageData: Buffer, type: "skin" | "cape"): Pr
       is22x17 = Number.isInteger(width / 22) && Number.isInteger(height / 17);
     // 尺寸不是64x32、64x64或22x17，或者尺寸是22x17，但不是披风
     if ((type != "cape" && is22x17) || (!is64x32 && !is64x64 && !is22x17)) {
-      throw new ErrorResponse("UnprocessableEntity", `Incorrect image width or height. Received width: ${width}; height: ${height}`);
+      throw new ErrorResponse("UnprocessableEntity", `提供的图像的宽度或高度无效。当前图像的宽度: ${width}；高度: ${height}`);
     }
     // 尺寸是22x17的披风，补足像素
     if (is22x17) {
@@ -176,7 +176,7 @@ export async function checkTexture(imageData: Buffer, type: "skin" | "cape"): Pr
   }
   // 未开启材质上传
   if (!CONFIG.user.uploadTexture) {
-    throw new ErrorResponse("ForbiddenOperation", "The server has disabled uploading textures online.");
+    throw new ErrorResponse("ForbiddenOperation", "服务器已禁用在线上传材质。");
   }
   const { width, height } = await checkImageSize();
   const image = await readPNG(imageData);

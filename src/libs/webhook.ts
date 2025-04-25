@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import Utils from "./utils.js";
+import Utils, { Time } from "./utils.js";
 import { WebHookConfig, WebHookReqInit, WebhookTypes } from "./interfaces.js";
 import { pinoLogger } from "../global.js";
 
@@ -12,7 +12,7 @@ const retrySecondMap = {
   5: "10min",
 };
 
-/** 一个实现了标准Webhook 的类 */
+/** 一个实现了标准Webhook的类 */
 export default class WebHook {
   /** v1类型密钥的前缀 */
   public static prefixV1 = "whsec_";
@@ -46,7 +46,7 @@ export default class WebHook {
       headers: {
         "content-type": "application/json;charset=utf-8",
         "webhook-id": messageId,
-        "user-agent": `nodeYggdrasil/${process.env.npm_package_version || "1.0.0"}`,
+        "user-agent": Utils.userAgent,
       },
     };
   }
@@ -136,7 +136,7 @@ export default class WebHook {
       requestInit.errorCount++;
       const nextTry = retrySecondMap[requestInit.errorCount];
       // 通过setTimeout来延迟执行下一次请求
-      setTimeout(() => this.send(requestInit), Utils.parseTimeString(nextTry));
+      setTimeout(() => this.send(requestInit), Time.parse(nextTry));
       const full = message + `请求将在${nextTry}后进行第${requestInit.errorCount}次重试。`;
       pinoLogger.webhook(full);
       return full;

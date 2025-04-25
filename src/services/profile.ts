@@ -25,7 +25,7 @@ export const ProfileService = {
     const uuid = request.params.uuid;
     const { user, profile } = request.permCheck(undefined, uuid);
     if (MSAuthCode) {
-      request.rateLim(user.id, "linkToMSAccount", CONFIG.user.keyOpRateLimit);
+      request.rateLim(user.id, "linkToMSAccount", CONFIG.user.keyOpRL);
     }
     const tasks = [name, model, capeVisible, unlinkMSAccount, Profile.getMSAccountId(MSAuthCode)];
     const [resName, resModel, resCapeVisible, resUnlinkMSAccount, resMSAuthCode] = await Promise.all(tasks).catch((e) => {
@@ -78,7 +78,7 @@ export const ProfileService = {
     const { uuid, textureType } = request.params;
     const profile = PROFILES.get(uuid);
     if (!profile) {
-      throw new ErrorResponse("NotFound", "Profile not found.");
+      throw new ErrorResponse("NotFound", "提供的角色ID无效。");
     }
     const texture: TextureData = profile.textures[textureType.toUpperCase()];
     if (texture) {
@@ -87,12 +87,12 @@ export const ProfileService = {
       reply.send();
       return false;
     }
-    throw new ErrorResponse("NotFound", "Texture does not exist.");
+    throw new ErrorResponse("NotFound", "请求的材质不存在。");
   },
   async importTexture(request: FastifyRequest<{ Querystring: { operation: "copyFromOfficial" | "importFromLittleskin" | "importFromOfficialURL" }; Params: { uuid: uuid }; Body: importTextureBody }>) {
     function takeAction() {
       if (!operation) {
-        throw new ErrorResponse("BadOperation", "Import operation is required.");
+        throw new ErrorResponse("BadOperation", "需要提供“操作类型”参数。");
       }
       if (operation == "copyFromOfficial") {
         return profile.textureManager().copyFromOfficial(request.body.profileName);
@@ -120,7 +120,7 @@ export const ProfileService = {
     const profile = PROFILES.get(uuid);
     request.rateLim(profile.owner, "uploadTexture");
     if (Number(request.headers["content-length"]) >= maxImgSize) {
-      throw new ErrorResponse("ContentTooLarge", `Provided image exceeds the maximum allowed size(5KB).`);
+      throw new ErrorResponse("ContentTooLarge", `提供的图片超过允许的最大大小(5KB)。`);
     }
     const image = await checkTexture(request.body, textureType);
     profile.textureManager().uploadTexture(image, textureType == "skin" ? model : "cape");

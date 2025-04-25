@@ -4,18 +4,14 @@ import publicStatic from "@fastify/static";
 import Ajv, { KeywordCxt } from "ajv";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import { ACCESSCONTROLLER, CONFIG, pinoLogger, PROFILES, TOKENSMAP, USERS, WEBHOOK } from "./global.js";
+import { ACCESSCONTROLLER, CONFIG, pinoLogger, PROFILES, Settings, TOKENSMAP, USERS, WEBHOOK } from "./global.js";
 import { Plugin } from "./libs/utils.js";
 import yggdrasil from "./routes/yggdrasil.js";
 import server from "./routes/api.js";
 
 const yggdrasilALI = { "x-authlib-injector-api-location": "/yggdrasil" };
 
-const ajv = new Ajv({
-  removeAdditional: true,
-  useDefaults: true,
-  coerceTypes: true,
-});
+const ajv = new Ajv({ removeAdditional: true, useDefaults: true, coerceTypes: true });
 
 ajv.addKeyword({
   keyword: "multipart",
@@ -46,7 +42,7 @@ Plugin.routePacker(app);
 Plugin.handlePacker(app);
 Plugin.allowedContentType(app);
 Plugin.getIP(app, { trustXRealIP: CONFIG.server.trustXRealIP });
-Plugin.rateLim(app, { gap: CONFIG.server.keyReqRateLimit, controller: ACCESSCONTROLLER });
+Plugin.rateLim(app, { gap: CONFIG.server.keyReqRL, controller: ACCESSCONTROLLER });
 
 app.setNotFoundHandler((requset, reply) => reply.replyError("NotFound", `Path not found: ${requset.url}`));
 app.setErrorHandler(async (error, _requset, reply) => reply.replyError("BadOperation", `check your request: ${error.message || "something is wrong."}`));
@@ -92,4 +88,5 @@ app.register(async (instance) => {
 const result = await app.listen({ port: CONFIG.server.port, host: CONFIG.server.host });
 WEBHOOK.emit("server.start", {});
 process.on("exit", () => WEBHOOK.emit("server.killed", {}));
+if (Settings.dev) pinoLogger.warn(`服务端正运行在开发模式。`);
 pinoLogger.info(`yggdrasil 验证服务端: ${CONFIG.server.name} 正运行在 ${result}`);

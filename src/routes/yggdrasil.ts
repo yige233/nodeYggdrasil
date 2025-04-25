@@ -152,6 +152,7 @@ const minecraftservices: RoutePackConfig = {
         schema: {
           summary: "获取用户密钥对，用于加密聊天消息",
           tags: ["yggdrasil"],
+          headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
           response: {
             200: Packer.object()({
               keyPair: Packer.object("密钥对")({

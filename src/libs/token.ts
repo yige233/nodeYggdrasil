@@ -1,7 +1,7 @@
 import { CONFIG, PROFILES, TOKENSMAP, USERS } from "../global.js";
 import { uuid, TokenStatus, PublicProfileData } from "./interfaces.js";
 import User from "./user.js";
-import Utils, { ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse, Time } from "./utils.js";
 
 /** 令牌 */
 export default class Token {
@@ -48,9 +48,8 @@ export default class Token {
    * @returns {Token}
    */
   static refresh(accessToken: uuid, clientToken?: string, profileId?: uuid): Token {
-    // 令牌不存在
     if (!TOKENSMAP.has(accessToken)) {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
     }
     const token: Token = TOKENSMAP.get(accessToken);
     return token.refresh(clientToken, profileId);
@@ -64,22 +63,19 @@ export default class Token {
   refresh(clientToken?: string, profileId?: uuid): Token {
     // 令牌验证失效
     if (this.validate(clientToken) == "invalid") {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
     }
     // 存在 profileId, 是选择角色的操作
     if (profileId) {
-      // 该令牌已经绑定了角色
       if (this.profile) {
-        throw new ErrorResponse("IllegalArgument", "Access token already has a profile assigned.");
+        throw new ErrorResponse("IllegalArgument", "该令牌已经绑定了角色。");
       }
-      // 不存在要选择的角色
       if (!PROFILES.has(profileId)) {
-        throw new ErrorResponse("IllegalArgument", "Invalid Profile.");
+        throw new ErrorResponse("IllegalArgument", "无效的角色。");
       }
       const profile = PROFILES.get(profileId);
-      // 该角色不属于该用户
       if (profile.owner != this.owner.id) {
-        throw new ErrorResponse("ForbiddenOperation", "No ownership of this profile.");
+        throw new ErrorResponse("ForbiddenOperation", "没有对该角色的所有权。");
       }
     }
     this.invalidate();
@@ -119,7 +115,7 @@ export default class Token {
     if (this.forcedTvalid) {
       return "Tvalid";
     }
-    const validityPeriod = Utils.parseTimeString(CONFIG.user.tokenValidityPeriod);
+    const validityPeriod = Time.parse(CONFIG.user.tokenTTL);
     /** 保证令牌有效期至少为30秒，避免出现意外修改成很小的数字，导致令牌瞬间失效 */
     const appliedPeriod = validityPeriod > 3e4 ? validityPeriod : 3e4;
     const now = Date.now();

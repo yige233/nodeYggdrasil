@@ -189,20 +189,6 @@ export default class Utils {
     };
   }
   /**
-   * 该函数将人类可读的字符串转换为毫秒时间。例如：1h34min6s转换为5646000
-   * @param {string | number} timeString
-   */
-  static parseTimeString(timeString: string | number): number {
-    if (typeof timeString == "number" || /^[0-9]*$/i.test(timeString)) {
-      return Number(timeString);
-    }
-    const hr = timeString.match(/(\d+)(?=h)/i)?.[0] ?? "0";
-    const min = timeString.match(/(\d+)(?=min)/i)?.[0] ?? "0";
-    const s = timeString.match(/(\d+)(?=s)/i)?.[0] ?? "0";
-    const ms = timeString.match(/(\d+)(?=ms)/i)?.[0] ?? "0";
-    return parseInt(hr) * 60 * 60 * 1000 + parseInt(min) * 60 * 1000 + parseInt(s) * 1000 + parseInt(ms);
-  }
-  /**
    * 对外发出请求。添加了一些默认选项，如UA 和 content-type
    * @param url 请求url
    * @param options 除 RequestInit 外，还包括：fallback: 如果请求失败，则返回该对象; timeout: 超时时间，单位为ms，默认为5s; json: 需要序列化的json body;
@@ -231,12 +217,12 @@ export default class Utils {
     const headers = new Headers({
       accpet: "application/json",
       "content-type": contentType,
-      "user-agent": `nodeYggdrasil/${process.env.npm_package_version || "1.0.0"}`,
+      "user-agent": Utils.userAgent,
       ...options.headers,
     });
     try {
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(Utils.parseTimeString(options.timeout || "5s")),
+        signal: AbortSignal.timeout(Time.parse(options.timeout || "5s")),
         ...options,
         body: body,
         headers: headers,
@@ -250,6 +236,66 @@ export default class Utils {
         return options.fallback;
       }
       throw e;
+    }
+  }
+  static get userAgent() {
+    return `nodeYggdrasil/${process.env.npm_package_version || "1.0.0"}`;
+  }
+}
+
+export class Time {
+  static get s() {
+    return 1000;
+  }
+  static get m() {
+    return Time.s * 60;
+  }
+  static get h() {
+    return Time.m * 60;
+  }
+  static get d() {
+    return Time.h * 24;
+  }
+  /**
+   * 将提供的带单位的时间字符串转换为毫秒时间。
+   * @param input 时间字符串，如"11h,2m,3s"。可以在单个参数中使用","分隔，也可直接提供多个参数。
+   * @returns {number}毫秒时间
+   */
+  static parse(...input: (string | number)[]): number {
+    return input
+      .join(",")
+      .split(",")
+      .filter((i) => i)
+      .map(Time.parseSingle)
+      .reduce((acc, cur) => acc + cur, 0);
+  }
+  /**
+   * 简化自 https://github.com/vercel/ms 。只保留了h,m,s,ms四个单位；无法解析字符串和解析的数字过大的情况下默认返回0。
+   * @param timeString 时间字符串
+   * @returns
+   */
+  static parseSingle(timeString: string | number): number {
+    if (typeof timeString == "number") return timeString;
+    const match = /^(-?(?:\d+)?\.?\d+) *(|ms|s|m|h|d)?$/i.exec(timeString);
+    if (!match) {
+      return 0;
+    }
+    const n = parseFloat(match[1]);
+    if (n > Number.MAX_SAFE_INTEGER) return 0;
+    const type = (match[2] || "ms").toLowerCase();
+    switch (type) {
+      case "d":
+        return n * Time.d;
+      case "h":
+        return n * Time.h;
+      case "m":
+        return n * Time.m;
+      case "s":
+        return n * Time.s;
+      case "ms":
+        return n;
+      default:
+        return 0;
     }
   }
 }
@@ -302,9 +348,8 @@ export class Plugin {
   /** 限制请求速度 */
   static rateLim(instance: FastifyInstance, options: { gap: string | number; controller: ThrottleController } = { gap: 100, controller: new ThrottleController() }): void {
     instance.decorateRequest("rateLim", function (key: string, operation: string, ms?: number | string): true {
-      // 限制请求速率
-      if (!options.controller.test(`${key}.${operation}`, Utils.parseTimeString(ms || options.gap))) {
-        throw new ErrorResponse("TooManyRequests", "Operating too fast.");
+      if (!options.controller.test(`${key}.${operation}`, Time.parse(ms || options.gap))) {
+        throw new ErrorResponse("TooManyRequests", "你的操作速度过快，请稍后再试。");
       }
       return true;
     });
@@ -322,7 +367,7 @@ export class Plugin {
       return instance.packHandle(function (request) {
         const current = request.headers["content-type"];
         if (current && !allowedContentTypes.some((i) => current.split(";").includes(i))) {
-          throw new ErrorResponse("UnsupportedMediaType", `Unsupported content-type: ${current}`);
+          throw new ErrorResponse("UnsupportedMediaType", `不支持的 content-type: ${current}`);
         }
         return false;
       });
@@ -342,21 +387,21 @@ export class Plugin {
       const accessToken: uuid = this.getToken();
       // 提供了用户id，但用户id无效
       if (userId && !USERS.has(userId)) {
-        throw new ErrorResponse("NotFound", "Invalid user.");
+        throw new ErrorResponse("NotFound", "无效的用户。");
       }
       // 提供了角色id，但角色id无效
       if (profileId && !PROFILES.has(profileId)) {
-        throw new ErrorResponse("NotFound", "Invalid profile.");
+        throw new ErrorResponse("NotFound", "无效的角色。");
       }
       const user = TOKENSMAP.get(accessToken)?.owner;
       const profile = PROFILES.get(profileId);
-      // 验证 token
+      // 验证令牌
       if (Token.validate(accessToken, undefined, user?.id || profile?.owner) != "valid") {
-        throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+        throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
       }
       // 要求是管理员，但提供的 token 属于一般用户
       if (checkAdmin && user?.role != "admin") {
-        throw new ErrorResponse("ForbiddenOperation", "No permissions.");
+        throw new ErrorResponse("ForbiddenOperation", "没有权限进行请求的操作。");
       }
       return { token: accessToken, user, profile };
     });
@@ -382,7 +427,7 @@ export class Plugin {
         }
         function handerForOther(request: FastifyRequest, reply: FastifyReply) {
           reply.header("Allow", definedMethods.join(", ").toUpperCase());
-          throw new ErrorResponse("MethodNotAllowed", `Method: ${request.method} is not allowed.`);
+          throw new ErrorResponse("MethodNotAllowed", `不允许使用的 HTTP 方法: ${request.method} 。`);
         }
         const schemaForOption = { summary: "查询该 api 支持的请求方法", tags: ["X-HIDDEN"], response: { 200: schemas.Response204.ok } };
         const schemaForOther = { summary: "该请求方法不被允许，因此会始终返回 405 Method Not Allowed。", tags: ["X-HIDDEN"], response: { 405: schemas.ResponseError } };
@@ -418,7 +463,7 @@ export class Plugin {
         try {
           if (request.validationError) {
             const { validationContext } = request.validationError;
-            throw new ErrorResponse("BadOperation", `Validation failed of the ${validationContext}.`);
+            throw new ErrorResponse("BadOperation", `验证请求失败： ${validationContext}.`);
           }
           const result = await handler(request, reply);
           if (result instanceof SuccessResponse) {
@@ -436,7 +481,7 @@ export class Plugin {
           const traceId = Utils.uuid();
           err.trace = traceId;
           instance.log.error(err);
-          reply.replyError("InternalError", `Something is wrong... Trace id: ${traceId}`);
+          reply.replyError("InternalError", `服务器出现内部错误。跟踪ID: ${traceId}`);
         }
       };
     });
@@ -577,6 +622,7 @@ export function debounce(warpped: () => void, timeWithin = 100) {
 
 export async function buildDataDir(dataDir = "./data") {
   const pathOf = Utils.dataDir(dataDir);
+  const log = (msg: string) => console.log(`[BuildDataDir] ${msg}`);
   const defaultConfig: Config = {
     server: {
       host: "",
@@ -587,7 +633,7 @@ export async function buildDataDir(dataDir = "./data") {
       register: "http://localhost:5400/",
       proxyCount: 0,
       trustXRealIP: false,
-      keyReqRateLimit: "300ms",
+      keyReqRL: "300ms",
     },
     user: {
       inviteCodes: [],
@@ -599,9 +645,9 @@ export async function buildDataDir(dataDir = "./data") {
       offlineProfile: true,
       defaultSkinURL: "http://textures.minecraft.net/texture/31f477eb1a7beee631c2ca64d06f8f68fa93a3386d04452ab27f43acdf1b60cb",
       passwdHashType: "HMACsha256",
-      keyOpRateLimit: "1h",
+      keyOpRL: "1h",
       maxProfileCount: 5,
-      tokenValidityPeriod: "336h",
+      tokenTTL: "336h",
       defaultInviteCodeCount: 5,
       officialPlayerWhitelist: false,
       changeOfflineProfileName: true,
@@ -624,7 +670,7 @@ export async function buildDataDir(dataDir = "./data") {
     webhooks: [],
   };
   const configStr = JSON.stringify(defaultConfig, null, 2);
-  console.log(`[buildDataDir]正在创建配置文件，位置：${pathOf()}`);
+  log(`正在创建配置文件，位置：${pathOf()}`);
   await fs.mkdir(pathOf("textures"), { recursive: true });
   await fs.mkdir(pathOf("logs"), { recursive: true });
   try {
@@ -634,7 +680,7 @@ export async function buildDataDir(dataDir = "./data") {
   }
   try {
     await fs.access(pathOf("privkey.pem"));
-    console.log("[buildDataDir]该位置存在私钥，跳过生成私钥步骤。");
+    log("该位置存在私钥，跳过生成私钥步骤。");
   } catch {
     const options: crypto.RSAKeyPairKeyObjectOptions = { modulusLength: 4096, publicExponent: 0x10001 };
     const privateKey: KeyObject = await new Promise((resolve, reject) => {
@@ -642,6 +688,6 @@ export async function buildDataDir(dataDir = "./data") {
     });
     await fs.writeFile(pathOf("privkey.pem"), privateKey.export({ type: "pkcs8", format: "pem" }), { flag: "wx" });
   }
-  console.log(`[buildDataDir]创建配置文件创建完成，位置：${pathOf()}`);
+  log(`创建配置文件创建完成，位置：${pathOf()}`);
   return Buffer.from(configStr);
 }

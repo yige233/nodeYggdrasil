@@ -70,7 +70,7 @@ export const BanService = {
         return USERS.get(PROFILES.get(target).owner);
       }
       // 该用户不存在
-      throw new ErrorResponse("BadOperation", `Invalid user or profile.`);
+      throw new ErrorResponse("BadOperation", `无效的用户或角色名。`);
     }
     request.permCheck(undefined, undefined, true);
     const { target, duration } = request.body;
@@ -93,11 +93,11 @@ export const InviteCodeService = {
     const list = [];
     // 请求获取的邀请码太多
     if (count > maxCount) {
-      throw new ErrorResponse("BadOperation", `Parameter 'count' should less than ${maxCount}.`);
+      throw new ErrorResponse("BadOperation", `请求的邀请码数量过多，应少于 ${maxCount} 个。`);
     }
     // 已存在的邀请码太多
     if (InviteCodes.clear() >= maxCount) {
-      throw new ErrorResponse("ForbiddenOperation", "Too many temporary inviteCodes exist.");
+      throw new ErrorResponse("ForbiddenOperation", "已达到邀请码数量上限，暂时无法生成邀请码。");
     }
     for (let i = 0; i < (count > 0 ? count : 1); i++) {
       list.push(InviteCodes.issue());
