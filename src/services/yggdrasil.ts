@@ -74,7 +74,7 @@ export const AuthserverService = {
   validate(request: FastifyRequest<{ Body: RequestValidate }>): SuccessResponse<undefined> {
     const { accessToken = null, clientToken = undefined }: RequestValidate = request.body;
     if (Token.validate(accessToken, clientToken) != "valid") {
-      throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+      throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
     }
     // 令牌有效
     return new SuccessResponse(undefined, 204);
@@ -185,10 +185,10 @@ export const ApiService = {
     const profile = PROFILES.get(uuid);
     request.rateLim(profile.owner, "uploadTexture");
     if (mimetype != "image/png") {
-      throw new ErrorResponse("UnsupportedMediaType", `Unsupported content-type: ${mimetype}`);
+      throw new ErrorResponse("UnsupportedMediaType", `不支持的 content-type: ${mimetype}`);
     }
     if (file.truncated) {
-      throw new ErrorResponse("ContentTooLarge", `Provided image exceeds the maximum allowed size(5KB).`);
+      throw new ErrorResponse("ContentTooLarge", `提供的图像太大，应小于5KB。`);
     }
     const image = await checkTexture(await request.body.file.toBuffer(), textureType);
     profile.textureManager().uploadTexture(image, textureType == "skin" ? model : "cape");
@@ -201,13 +201,13 @@ export const ApiService = {
     await profile.textureManager().deleteTexture(textureType);
     return new SuccessResponse(undefined, 204);
   },
-  async textureAaccessCheck(request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" | "all" } }>) {
+  async textureAccessCheck(request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" | "all" } }>) {
     const { uuid, textureType } = request.params;
     if (!["skin", "cape", "all"].includes(textureType)) {
       // 提供的材质类型无效
-      throw new ErrorResponse("NotFound", "Path Not Found.");
+      throw new ErrorResponse("NotFound", "无效的材质类型参数。");
     }
-    if (request.method.toLocaleLowerCase() == "get") {
+    if (["get", "head", "options"].includes(request.method.toLocaleLowerCase())) {
       return false;
     }
     const { user } = request.permCheck(undefined, uuid);
@@ -239,7 +239,7 @@ export const mcService = {
       });
     }
     if (!CONFIG.features.enable_profile_key) {
-      throw new ErrorResponse("ForbiddenOperation", "The option 'features.enable_profile_key' is set to false.");
+      throw new ErrorResponse("ForbiddenOperation", "服务端未启用以下功能：features.enable_profile_key 。");
     }
     // 检查携带的Authorization头是否是合法的令牌
     try {
@@ -259,7 +259,7 @@ export const mcService = {
         return buildResponse(publicKey, privateKey, uuid, Date.now() + expireIn);
       } catch {
         // 令牌解析失败，视为无效令牌。
-        throw new ErrorResponse("ForbiddenOperation", "Invalid token.");
+        throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
       }
     }
   },
@@ -326,7 +326,7 @@ export const mcService = {
       ]);
       return new SuccessResponse(result);
     } catch {
-      throw new ErrorResponse("BadOperation", "Provided token is not bound to any profile.");
+      throw new ErrorResponse("BadOperation", "提供的令牌未绑定任何角色。");
     }
   },
 };
@@ -367,7 +367,7 @@ export const RootService = {
       reply.header("content-type", "image/png");
       return new SuccessResponse(image);
     } catch {
-      throw new ErrorResponse("NotFound", `Path not found: ${request.url}`);
+      throw new ErrorResponse("NotFound", `不存在的路径: ${request.url}`);
     }
   },
 };

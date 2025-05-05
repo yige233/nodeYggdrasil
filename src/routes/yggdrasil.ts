@@ -124,7 +124,7 @@ const api: RoutePackConfig = {
       },
       before: function (instance: FastifyInstance) {
         instance.addHook("onRequest", instance.allowedContentType("multipart/form-data"));
-        instance.addHook("onRequest", instance.packHandle(ApiService.textureAaccessCheck));
+        instance.addHook("onRequest", instance.packHandle(ApiService.textureAccessCheck));
         instance.register(multipart, { attachFieldsToBody: true, limits: { fileSize: 5120, files: 1, fields: 1 } });
       },
     },

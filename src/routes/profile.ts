@@ -69,7 +69,7 @@ const textureType: RoutePackConfig = {
       });
     });
     instance.addHook("onRequest", instance.allowedContentType("image/png"));
-    instance.addHook("onRequest", instance.packHandle(ApiService.textureAaccessCheck));
+    instance.addHook("onRequest", instance.packHandle(ApiService.textureAccessCheck));
   },
 };
 

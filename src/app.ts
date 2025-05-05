@@ -44,8 +44,17 @@ Plugin.allowedContentType(app);
 Plugin.getIP(app, { trustXRealIP: CONFIG.server.trustXRealIP });
 Plugin.rateLim(app, { gap: CONFIG.server.keyReqRL, controller: ACCESSCONTROLLER });
 
-app.setNotFoundHandler((requset, reply) => reply.replyError("NotFound", `Path not found: ${requset.url}`));
-app.setErrorHandler(async (error, _requset, reply) => reply.replyError("BadOperation", `check your request: ${error.message || "something is wrong."}`));
+app.setNotFoundHandler((requset, reply) => {
+  if (requset.method.toLowerCase() === "options") {
+    reply.headers({
+      Allow: "GET,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,OPTIONS",
+    });
+    reply.replySuccess(undefined, 200);
+    return;
+  }
+  reply.replyError("NotFound", `不存在的路径: ${requset.url}`);
+});
 if (CONFIG.privExtend.enableSwaggerUI) {
   await app.register(swagger, {
     swagger: {
