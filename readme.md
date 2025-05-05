@@ -5,7 +5,7 @@
 ### 注意
 
 > [!WARNING]
-> 下方的部分内容已经不再适用于(Commit 270f494)[https://github.com/yige233/nodeYggdrasil/commit/270f4949c3824f934d33ddf3ac43968c89148850]后的版本。
+> 下方的部分内容已经不再适用于[Commit 270f494](https://github.com/yige233/nodeYggdrasil/commit/270f4949c3824f934d33ddf3ac43968c89148850)后的版本。
 > 并且在新版的前端做完之前，都可能不会更新readme。如果有疑问，可以发discussion或issue。
 
 ### 一些特点
