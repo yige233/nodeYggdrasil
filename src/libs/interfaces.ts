@@ -57,6 +57,8 @@ export interface Config extends PublicConfig {
     port: number;
     /** 验证服务器的根url，用于拼接材质url。 以斜杠(/)结尾。示例：https://auth.example.com/ */
     root: string;
+    /** access-control-allow-origin 使用的值。不以斜杠(/)结尾，示例：https://auth.example.com */
+    cors: string;
     /** 验证服务器名称 */
     name: string;
     /** 验证服务器主页 */

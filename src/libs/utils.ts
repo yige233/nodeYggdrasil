@@ -630,6 +630,7 @@ export async function buildDataDir(dataDir = "./data") {
       port: 5400,
       name: "NodeYggdrasilServer",
       root: "http://localhost:5400/",
+      cors: "http://localhost:5400",
       homepage: "http://localhost:5400/",
       register: "http://localhost:5400/",
       proxyCount: 0,

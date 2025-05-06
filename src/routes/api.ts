@@ -68,7 +68,7 @@ const settings: RoutePackConfig = {
     handler: SettingService.updateSettings,
     schema: {
       summary: "修改服务器配置和设置",
-      description: "不能修改以下项目：server.host, server.port, server.root, privateKeyPath, user.passwdHashType。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
+      description: "不能修改以下项目：server.host, server.port, server.root,server.cors, privateKeyPath, user.passwdHashType。也不能新建不存在的项目，不能删除已有项目、更改项目类型(如string=>number)",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
       body: schemas.Config,
@@ -206,7 +206,7 @@ const server: RoutePackConfig = {
   },
   before: function (instance) {
     instance.addHook("onRequest", async (_request, reply) => {
-      reply.headers({ "Access-Control-Allow-Origin": CONFIG.server.root });
+      reply.headers({ "access-control-allow-origin": CONFIG.server.cors });
     });
   },
 };
