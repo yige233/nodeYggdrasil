@@ -45,6 +45,7 @@ export const SettingService = {
           uploadTexture: CONFIG.user.uploadTexture,
           offlineProfile: CONFIG.user.offlineProfile,
           changeOfflineProfileName: CONFIG.user.changeOfflineProfileName,
+          changeUserName: CONFIG.user.changeUserName,
         },
         features: CONFIG.features,
         pubExtend: CONFIG.pubExtend,

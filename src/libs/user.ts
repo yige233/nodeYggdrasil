@@ -311,7 +311,7 @@ export default class User implements UserData {
   setUserInfo(username?: string, password?: string, nickName?: string): User {
     this.checkReadonly();
     User.userInfoCheck(username, password, nickName, this);
-    if (username) this.username = username;
+    if (username && CONFIG.user.changeUserName) this.username = username;
     if (nickName) this.nickName = nickName;
     if (password) {
       this.passwdHash(password).apply();

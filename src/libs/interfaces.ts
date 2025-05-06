@@ -102,6 +102,8 @@ export interface Config extends PublicConfig {
     offlineProfile: boolean;
     /** 是否允许修改兼容离线模式的角色名称。该项禁用后，已经修改了名称的角色仍然可以继续使用修改后的名称。 */
     changeOfflineProfileName: boolean;
+    /** 是否允许修改用户名（用于登录的邮箱） */
+    changeUserName: boolean;
     /** 新用户默认拥有的可生成邀请码次数 */
     defaultInviteCodeCount: number;
   };

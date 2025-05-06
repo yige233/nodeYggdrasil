@@ -653,6 +653,7 @@ export async function buildDataDir(dataDir = "./data") {
       defaultInviteCodeCount: 5,
       officialPlayerWhitelist: false,
       changeOfflineProfileName: true,
+      changeUserName: true,
     },
     privateKeyPath: pathOf("privkey.pem"),
     skinDomains: ["littleskin.cn", ".littleskin.cn", "localhost", ".minecraft.net"],
