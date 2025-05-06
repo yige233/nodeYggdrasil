@@ -418,9 +418,10 @@ export class Plugin {
       };
       const buildUndefinedRouteOption = (url: string, method: HTTPMethods): RouteOptions => {
         function handerForOption(_request: FastifyRequest, reply: FastifyReply) {
+          const allowed = [...definedMethods, "options"].join(",").toUpperCase();
           reply.headers({
-            Allow: definedMethods.join(",").toUpperCase(),
-            "Access-Control-Allow-Methods": definedMethods.join(",").toUpperCase(),
+            Allow: allowed,
+            "Access-Control-Allow-Methods": allowed,
             "Access-Control-Allow-Headers": "content-type,authorization",
           });
           return new SuccessResponse(undefined, 200);

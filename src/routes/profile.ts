@@ -53,6 +53,13 @@ const textureType: RoutePackConfig = {
       response: { 204: schemas.Response204.ok },
     },
   },
+  /** 跨域时正确响应OPTIONS请求 */
+  options: {
+    handler: ProfileService.corsPreflight,
+    schema: {
+      tags: ["X-HIDDEN"],
+    },
+  },
   before: function (instance: FastifyInstance) {
     instance.addContentTypeParser("image/png", async function (_request: FastifyRequest, payload) {
       return await new Promise((resolve, reject) => {

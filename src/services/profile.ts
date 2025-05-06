@@ -141,4 +141,12 @@ export const ProfileService = {
     reply.header("Location", `/${result.id}`);
     return new SuccessResponse(result.getYggdrasilData(true), 201);
   },
+  corsPreflight(_request: FastifyRequest, reply: FastifyReply) {
+    reply.headers({
+      Allow: "GET,PUT,DELETE,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,PUT,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers": "content-type,authorization,x-skin-model",
+    });
+    return new SuccessResponse(undefined, 200);
+  },
 };
