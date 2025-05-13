@@ -838,13 +838,13 @@ class User {
   }
   static login(username, password) {
     return request("/server/sessions", {
-      method: "put",
+      method: "post",
       body: JSON.stringify({ username, password }),
     });
   }
   static register(data) {
     return request("/server/users", {
-      method: "put",
+      method: "post",
       body: JSON.stringify([data]),
     });
   }
@@ -863,7 +863,7 @@ class User {
       return new ErrorResponse({ error: "无法重置密码", errorMessage: "提供的用户不存在" });
     }
     const userId = userInfo.id;
-    return request("/server/user/" + userId + "/password", {
+    return request("/server/users/" + userId + "/password", {
       method: "post",
       body: JSON.stringify({ rescueCode, newPass }),
     });
@@ -898,7 +898,7 @@ class User {
     }
   }
   getUserInfo(userId) {
-    return request("/server/user/" + userId, {
+    return request("/server/users/" + userId, {
       headers: {
         Authorization: "Bearer " + this.accessToken,
       },
@@ -906,7 +906,7 @@ class User {
     });
   }
   editUserInfo(data) {
-    return request("/server/user/" + this.uuid, {
+    return request("/server/users/" + this.uuid, {
       headers: {
         Authorization: "Bearer " + this.accessToken,
       },
@@ -915,19 +915,19 @@ class User {
     });
   }
   lockUser(username, password) {
-    return request("/server/user/" + this.uuid, {
+    return request("/server/users/" + this.uuid, {
       method: "patch",
       body: JSON.stringify({ operation: "lock", data: { username, password } }),
     });
   }
   deleteUser(username, password) {
-    return request("/server/user/" + this.uuid, {
+    return request("/server/users/" + this.uuid, {
       body: JSON.stringify({ username, password }),
       method: "delete",
     });
   }
   getUserRescueCode() {
-    return request("/server/user/" + this.uuid + "/rescueCode", {
+    return request("/server/users/" + this.uuid + "/rescueCode", {
       headers: {
         Authorization: "Bearer " + this.accessToken,
       },
