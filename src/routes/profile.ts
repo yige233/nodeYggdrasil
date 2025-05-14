@@ -12,7 +12,7 @@ const textureType: RoutePackConfig = {
       summary: "获取用户指定材质的url",
       description: "若param中的角色id存在，且该角色拥有对应的材质，则会通过302重定向到该材质的URL。",
       tags: ["server"],
-      params: Packer.object()({ uuid: schemas.shared.userUuid, textureType: schemas.shared.textureType }, "uuid", "textureType"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid, textureType: schemas.shared.textureType }, "uuid", "textureType"),
       response: { 302: schemas.Response204.ok },
     },
   },
@@ -23,7 +23,7 @@ const textureType: RoutePackConfig = {
       summary: "从用户侧上传材质",
       description: "payload只接受png，大小在5kb以内。若上传皮肤，需要额外提供x-skin-model请求头，指示皮肤使用的模型。旧有的材质会被删除。需要提供有效的令牌。",
       tags: ["server"],
-      params: Packer.object()({ uuid: schemas.shared.userUuid, textureType: schemas.shared.textureType }, "uuid", "textureType"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid, textureType: schemas.shared.textureType }, "uuid", "textureType"),
       consumes: ["image/png"],
       headers: Packer.object()(
         {
@@ -89,7 +89,7 @@ const textures: RoutePackConfig = {
       description: "需要提供有效的令牌。根据operation所指定的操作，需要提供相应的数据。",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
-      params: Packer.object()({ uuid: schemas.shared.userUuid }, "uuid"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid }, "uuid"),
       querystring: Packer.object()({
         operation: Packer.string("对材质的操作类型", "copyFromOfficial", "importFromLittleskin", "importFromOfficialURL"),
       }),
@@ -116,7 +116,7 @@ const profile: RoutePackConfig = {
       summary: "查询指定角色的完整信息",
       description: "结果包含角色属性，可选是否包含签名。需要提供有效的令牌。",
       tags: ["server"],
-      params: Packer.object()({ uuid: schemas.shared.userUuid }, "uuid"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid }, "uuid"),
       querystring: Packer.object()({ unsigned: schemas.shared.unsigned }),
       response: { 200: schemas.PublicProfileData },
     },
@@ -129,7 +129,7 @@ const profile: RoutePackConfig = {
       description: "可以修改角色名称和披风可见性；可以绑定和解绑微软账户。需要提供有效的令牌。如果修改了角色名称，那么会同时使所有绑定了该角色的令牌进入暂时失效状态。",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
-      params: Packer.object()({ uuid: schemas.shared.userUuid }, "uuid"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid }, "uuid"),
       body: Packer.object()({
         name: Packer.string("新的角色名称，为空则视为不作修改。"),
         model: Packer.string("角色使用的模型。", "default", "slim"),
@@ -148,7 +148,7 @@ const profile: RoutePackConfig = {
       description: "会同时删除上传到服务器的材质。需要提供有效的令牌。",
       tags: ["server"],
       headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
-      params: Packer.object()({ uuid: schemas.shared.userUuid }, "uuid"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid }, "uuid"),
       response: { 204: schemas.Response204.ok },
     },
   },

@@ -47,7 +47,7 @@ export default class Profile implements ProfileData {
     }
     const user = USERS.get(userId);
     user.checkReadonly();
-    if (user.profiles.length > user.maxProfileCount) {
+    if (user.profiles.length >= user.maxProfileCount) {
       throw new ErrorResponse("ForbiddenOperation", "用户所拥有的角色太多。");
     }
     Profile.checkName(name);

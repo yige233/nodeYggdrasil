@@ -117,7 +117,7 @@ export default class Token {
     }
     const validityPeriod = Time.parse(CONFIG.user.tokenTTL);
     /** 保证令牌有效期至少为30秒，避免出现意外修改成很小的数字，导致令牌瞬间失效 */
-    const appliedPeriod = validityPeriod > 3e4 ? validityPeriod : 3e4;
+    const appliedPeriod = validityPeriod > Time.parse("30s") ? validityPeriod : Time.parse("30s");
     const now = Date.now();
     // 当现在时间小于令牌颁发时间+过期时间，说明令牌有效或暂时失效
     if (now < this.issuedTime + appliedPeriod) {

@@ -55,6 +55,8 @@ app.setNotFoundHandler((requset, reply) => {
   }
   reply.replyError("NotFound", `不存在的路径: ${requset.url}`);
 });
+app.setErrorHandler(async (error, _requset, reply) => void reply.replyError("BadOperation", `检查你的请求: ${error.message}`));
+
 if (CONFIG.privExtend.enableSwaggerUI) {
   await app.register(swagger, {
     swagger: {
