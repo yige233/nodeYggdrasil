@@ -78,7 +78,7 @@ export const UserServices = {
     // 重置密码的速率限制是30秒
     request.rateLim(uuid, "resetPassword", "30s");
     const { rescueCode = null, newPass = null } = request.body;
-    const user = await User.resetPass(uuid, rescueCode, newPass);
+    const user = User.resetPass(uuid, rescueCode, newPass);
     WEBHOOK.emit("user.password.reset", { id: user.id, nickName: user.nickName, ip: request.getIP() });
     return new SuccessResponse(undefined, 204);
   },
@@ -127,23 +127,14 @@ export const UserServices = {
     throw new ErrorResponse("BadOperation", `缺少如下参数: “user”或“after”。`);
   },
   async newUser(request: FastifyRequest<{ Body: newUserBody | newUserBody[] }>) {
-    function getMaxRegisterCount() {
-      // 如果携带了 Authorization 头，并且 accessToken 的所有者是管理员，那么他可以一次性注册大量用户
-      if (request.getToken() && request.permCheck(undefined, undefined, true)) {
-        return users.length;
-      }
-      return 1;
-    }
-    const users = Array.isArray(request.body) ? request.body : [request.body];
-    const result: (MinimumUserData | { error: string; errorMessage: string })[] = [];
+    const rawRegList = Array.isArray(request.body) ? request.body : [request.body];
     request.rateLim(request.getIP(), "newUser");
-    const maxRegisterCount = getMaxRegisterCount();
-
-    for (let i = 0; i < maxRegisterCount; i++) {
-      const { username, password, inviteCode = null, nickName = null } = users[i];
+    //如果携带了 Authorization 头，并且 accessToken 的所有者是管理员，那么他可以一次性注册大量用户
+    const regList = request.getToken() && request.permCheck(undefined, undefined, true) ? rawRegList : rawRegList.slice(0, 1);
+    const result: (MinimumUserData | { error: string; errorMessage: string })[] = regList.map((i) => {
+      const { username, password, inviteCode = null, nickName = null } = i;
       try {
-        const user = await User.register({ username, password, inviteCode, nickName, ip: request.getIP() });
-        result.push(user.yggdrasilData);
+        const user = User.register({ username, password, inviteCode, nickName, ip: request.getIP() });
         WEBHOOK.emit("user.register", {
           id: user.id,
           nickName: user.nickName,
@@ -154,14 +145,14 @@ export const UserServices = {
             nickName: user.extend.source == "user" ? USERS.get(user.extend.source).nickName : undefined,
           },
         });
+        return user.yggdrasilData;
       } catch (err) {
         if (err instanceof ErrorResponse) {
-          result.push({ error: err.error, errorMessage: err.errorMessage });
-          continue;
+          return { error: err.error, errorMessage: err.errorMessage };
         }
         throw err;
       }
-    }
+    });
     if (result.find((i) => "id" in i)) return new SuccessResponse(result.length == 1 ? result[0] : result, 201);
     return new SuccessResponse(result.length == 1 ? result[0] : result, 400);
   },

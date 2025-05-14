@@ -38,7 +38,7 @@ export default class Profile implements ProfileData {
    * @param offlineCompatible (默认:false) 是否兼容离线模式（使用与离线模式相同的uuid生成模式）
    * @returns {Profile}
    */
-  static async new(name: string, userId: uuid, offlineCompatible: boolean = false): Promise<Profile> {
+  static new(name: string, userId: uuid, offlineCompatible: boolean = false): Profile {
     if (!USERS.has(userId)) {
       throw new ErrorResponse("BadOperation", `指定的用户不存在: ${userId} 。`);
     }

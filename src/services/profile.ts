@@ -126,10 +126,10 @@ export const ProfileService = {
     profile.textureManager().uploadTexture(image, textureType == "skin" ? model : "cape");
     return new SuccessResponse(undefined, 204);
   },
-  async newProfile(request: FastifyRequest<{ Body: { name: string; offlineCompatible: boolean } }>, reply: FastifyReply) {
+  newProfile(request: FastifyRequest<{ Body: { name: string; offlineCompatible: boolean } }>, reply: FastifyReply) {
     const { user } = request.permCheck();
     const { name, offlineCompatible = false } = request.body;
-    const result = await Profile.new(name, user.id, offlineCompatible);
+    const result = Profile.new(name, user.id, offlineCompatible);
     WEBHOOK.emit("profile.create", {
       id: result.id,
       name: result.name,

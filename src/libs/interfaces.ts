@@ -297,7 +297,7 @@ export interface PublicProfileData {
   /** 角色属性 */
   properties?: { name: string; value: string; signature?: string }[];
   /** 游戏需要针对该账户采取的操作的列表 */
-  profileActions: ("FORCED_NAME_CHANGE" | "USING_BANNED_SKIN")[];
+  profileActions?: ("FORCED_NAME_CHANGE" | "USING_BANNED_SKIN")[];
 }
 /** 认证请求 */
 export interface RequestAuth {

@@ -157,25 +157,20 @@ export const SessionserverService = {
 export const ApiService = {
   /** 查询多个角色信息 */
   getProfiles(request: FastifyRequest<{ Body: string[] }>): SuccessResponse<PublicProfileData[]> {
-    function getQuery(index: number) {
-      const rawQuery = uniqueQuery[index]?.replace("-", "");
-      return rawQuery.match(/^[0-9a-f]{32}$/i)?.[0].toLowerCase() ?? undefined;
-    }
-    // 最大查询数量：5
-    const maxQuery = 5;
-    const list: PublicProfileData[] = [];
-    const uniqueQuery = [...new Set(request.body instanceof Array ? request.body : [])];
-    for (let i = 0; i < maxQuery; i++) {
-      const query = getQuery(i);
-      if (PROFILES.has(query)) {
-        const profile = PROFILES.get(query).getYggdrasilData();
-        if (profile.properties) {
-          delete profile.properties;
+    // 最大查询结果数量：100
+    const maxQuery = 100;
+    const result: PublicProfileData[] = [...new Set(request.body instanceof Array ? request.body : [])]
+      .map((i) => i.replace(/-/g, ""))
+      .slice(0, maxQuery)
+      .map((i) => {
+        const query = i.match(/^[0-9a-f]{32}$/i)?.[0].toLowerCase() ?? i;
+        if (PROFILES.has(query)) {
+          const { id, name } = PROFILES.get(query).getYggdrasilData();
+          return { id, name };
         }
-        list.push(profile);
-      }
-    }
-    return new SuccessResponse(list);
+      })
+      .filter((i) => i);
+    return new SuccessResponse(result);
   },
   /** 上传材质 */
   async uploadTexture(request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" }; Body: { model: string; file: MultipartFile } }>): Promise<SuccessResponse<undefined>> {

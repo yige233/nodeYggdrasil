@@ -98,7 +98,7 @@ export default class User implements UserData {
    * @param nickName 用户昵称
    * @returns {User}
    */
-  static async register({ username, password, inviteCode, ip, nickName }: { username: string; password: string; inviteCode: string; ip: string; nickName?: string }): Promise<User> {
+  static register({ username, password, inviteCode, ip, nickName }: { username: string; password: string; inviteCode: string; ip: string; nickName?: string }): User {
     function checkInviteCode(skip = false) {
       // 跳过邀请码检查
       if (skip) {
@@ -172,7 +172,7 @@ export default class User implements UserData {
    * @param newPass 新的密码
    * @returns Response
    */
-  static async resetPass(userId: string, rescueCode: string, newPass: string): Promise<User> {
+  static resetPass(userId: string, rescueCode: string, newPass: string): User {
     if (!USERS.has(userId)) {
       // 该用户不存在
       throw new ErrorResponse("NotFound", `无效的用户ID。`);
