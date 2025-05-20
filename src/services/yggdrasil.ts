@@ -291,10 +291,13 @@ export const mcService = {
     });
   },
   /** 通过Xbox登录 */
-  async loginWithXbox(request: FastifyRequest<{ Body: { identityToken: string } }>) {
-    const { identityToken } = request.body;
+  async loginWithXbox(request: FastifyRequest<{ Body: { identityToken: string; xtoken: string } }>) {
+    const { identityToken, xtoken } = request.body;
+    if (!identityToken && !xtoken) {
+      throw new ErrorResponse("BadOperation", "无效的 identityToken 或 xtoken 参数。");
+    }
     request.rateLim(request.getIP(), "loginWithXbox");
-    const { username, access_token, user } = await Session.joinWithXbox(identityToken);
+    const { username, access_token, user } = await Session.joinWithXbox(identityToken || xtoken);
     if (user) {
       WEBHOOK.emit("user.loginWithXbox", {
         id: user.id,

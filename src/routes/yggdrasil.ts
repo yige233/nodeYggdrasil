@@ -260,7 +260,31 @@ const minecraftservices: RoutePackConfig = {
         schema: {
           summary: "通过Xbox登录（该API会被Geyser调用）",
           tags: ["yggdrasil"],
-          body: Packer.object()({ identityToken: Packer.string("OAuth流程中从微软拿到的XSTS Token") }, "identityToken"),
+          body: Packer.object()({ identityToken: Packer.string("OAuth流程中从微软拿到的XSTS Token，在此API中的名称是 identityToken") }, "identityToken"),
+          response: {
+            200: Packer.object()({
+              roles: {
+                type: "array",
+                maxItems: 0,
+              },
+              expires_in: Packer.integer("登录Token过期时间"),
+              token_type: Packer.string("登录Token类型，固定为 Bearer", "Bearer"),
+              access_token: Packer.string("登录Token"),
+              username: Packer.string("用户id（不是MC角色id）"),
+            }),
+          },
+        },
+      },
+    },
+    {
+      url: "/launcher/login",
+      post: {
+        handler: mcService.loginWithXbox,
+        schema: {
+          summary: "通过Xbox登录（该API会被Geyser调用）",
+          description: "自从某个版本后，/authentication/login_with_xbox API不再被Geyser调用，而是改为 POST /launcher/login 。不过两者实际上差别不大（大概）",
+          tags: ["yggdrasil"],
+          body: Packer.object()({ xtoken: Packer.string("OAuth流程中从微软拿到的XSTS Token，在此API中的名称是 xtoken") }, "xtoken"),
           response: {
             200: Packer.object()({
               roles: {
