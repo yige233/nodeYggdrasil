@@ -209,26 +209,25 @@ export default class Profile implements ProfileData {
       };
     }
     const textureStr = Utils.encodeb64(JSON.stringify(textures));
-    const result: PublicProfileData = {
+    return {
       id: this.id,
       name: this.name,
-      profileActions: [],
-      properties: includeProperty
-        ? [
-            {
-              name: "textures",
-              value: textureStr,
-              signature: signed ? Utils.makeSignature(textureStr, PRIVATEKEY) : undefined,
-            },
-            {
-              name: "uploadableTextures",
-              value: this.uploadableTextures,
-              signature: signed ? Utils.makeSignature(this.uploadableTextures, PRIVATEKEY) : undefined,
-            },
-          ]
-        : undefined,
+      ...(includeProperty && {
+        profileActions: [],
+        properties: [
+          {
+            name: "textures",
+            value: textureStr,
+            ...(signed && { signature: Utils.makeSignature(textureStr, PRIVATEKEY) }),
+          },
+          {
+            name: "uploadableTextures",
+            value: this.uploadableTextures,
+            ...(signed && { signature: Utils.makeSignature(this.uploadableTextures, PRIVATEKEY) }),
+          },
+        ],
+      }),
     };
-    return JSON.parse(JSON.stringify(result));
   }
   /** 导出符合 api.minecraftservices.com/minecraft/profile 格式的数据 */
   getProfileData(): AuthorizatedProfileData {

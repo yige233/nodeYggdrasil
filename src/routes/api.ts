@@ -206,7 +206,7 @@ const server: RoutePackConfig = {
   },
   before: function (instance) {
     instance.addHook("onRequest", async (_request, reply) => {
-      reply.headers({ "access-control-allow-origin": CONFIG.server.cors });
+      reply.headers({ "Access-Control-Allow-Origin": CONFIG.server.cors });
     });
   },
 };

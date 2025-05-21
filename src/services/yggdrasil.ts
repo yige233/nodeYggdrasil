@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import crypto, { KeyObject } from "crypto";
 import { FastifyReply, FastifyRequest } from "fastify";
-import { MultipartFile } from "@fastify/multipart";
+import { MultipartFile, MultipartValue } from "@fastify/multipart";
 import {
   uuid,
   RequestAuth,
@@ -173,10 +173,12 @@ export const ApiService = {
     return new SuccessResponse(result);
   },
   /** 上传材质 */
-  async uploadTexture(request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" }; Body: { model: string; file: MultipartFile } }>): Promise<SuccessResponse<undefined>> {
+  async uploadTexture(
+    request: FastifyRequest<{ Params: { uuid: uuid; textureType: "skin" | "cape" }; Body: { model: MultipartValue<string>; file: MultipartFile } }>
+  ): Promise<SuccessResponse<undefined>> {
     const { uuid, textureType } = request.params;
     const { file, mimetype } = request.body.file;
-    const model = request.body.model == "slim" ? "slim" : "default";
+    const model = request.body.model?.value == "slim" ? "slim" : "default";
     const profile = PROFILES.get(uuid);
     request.rateLim(profile.owner, "uploadTexture");
     if (mimetype != "image/png") {

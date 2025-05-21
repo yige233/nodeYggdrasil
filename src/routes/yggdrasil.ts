@@ -3,6 +3,7 @@ import multipart from "@fastify/multipart";
 import { RoutePackConfig } from "../libs/interfaces.js";
 import { ApiService, AuthserverService, RootService, mcService, SessionserverService } from "../services/yggdrasil.js";
 import schemas, { Packer } from "../libs/schemas.js";
+import { ProfileService } from "../services/profile.js";
 
 const authserver: RoutePackConfig = {
   url: "/authserver",
@@ -120,6 +121,13 @@ const api: RoutePackConfig = {
           headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
           params: Packer.object()({ uuid: schemas.shared.profileUuid, textureType: schemas.shared.textureType }, "uuid", "textureType"),
           response: { 204: schemas.Response204.ok },
+        },
+      },
+      /** 跨域时正确响应OPTIONS请求 */
+      options: {
+        handler: ProfileService.corsPreflight,
+        schema: {
+          tags: ["X-HIDDEN"],
         },
       },
       before: function (instance: FastifyInstance) {

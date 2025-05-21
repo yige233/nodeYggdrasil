@@ -40,13 +40,13 @@ export const OFFICIALPLAYERLIST = officialPlayersRaw.asObject({ blacklist: [], w
 /** 用户数据 */
 export const USERS = userDataRaw.asArray("id")<User>(
   (user) => new User(user),
-  compareWith((user) => [user.id, user.username, ...user.profiles]),
+  compareWith((user) => [user.id, user.username, ...user.profiles].filter((i) => i)),
   (user) => user.export
 );
 /** 角色数据 */
 export const PROFILES = profileDataRaw.asArray("id")<Profile>(
   (profile) => new Profile(profile),
-  compareWith((profile) => [profile.name, profile.id, profile.linkedMSUserId]),
+  compareWith((profile) => [profile.name, profile.id, profile.linkedMSUserId].filter((i) => i)),
   (profile) => profile.export
 );
 
