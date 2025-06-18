@@ -31,7 +31,7 @@ export default class Token {
     this.accessToken = accessToken;
     this.clientToken = clientToken;
     this.forcedTvalid = false;
-    if (user.profiles.length == 1) this.profile = user.profiles[0];
+    if (user.profiles.length === 1) this.profile = user.profiles[0];
     if (profile) this.profile = profile;
     // 最多10个登录会话，若超出则删除最早的那个
     if (user.tokens.size >= 10) {
@@ -62,7 +62,7 @@ export default class Token {
    */
   refresh(clientToken?: string, profileId?: uuid): Token {
     // 令牌验证失效
-    if (this.validate(clientToken) == "invalid") {
+    if (this.validate(clientToken) === "invalid") {
       throw new ErrorResponse("ForbiddenOperation", "无效的令牌。");
     }
     // 存在 profileId, 是选择角色的操作

@@ -71,11 +71,11 @@ export interface Config extends PublicConfig {
     proxyCount: number;
     /** 是否信任 x-real-ip 头的值 */
     trustXRealIP: boolean;
+    /** 响应体缓存过期时间 */
+    cacheTTL: string | number;
   };
   /** 用户相关 */
   user: {
-    /** 密码hash方式 */
-    passwdHashType: "HMACsha256" | "sha256";
     /** 默认皮肤 */
     defaultSkinURL: string;
     /** 身份验证令牌过期时间 */
@@ -114,7 +114,7 @@ export interface Config extends PublicConfig {
   /** 扩展属性 */
   privExtend: {
     /** 其他扩展属性 */
-    [key: string]: any;
+    [key: string]: unknown;
   };
   /** webhook配置列表 */
   webhooks: WebHookConfig[];
@@ -502,8 +502,9 @@ export interface OfficialPlayerList {
   /** 已记录的正版玩家列表。 */
   logged: uuid[];
 }
+type _HttpMethods = "get" | "post" | "put" | "delete" | "patch" | "options" | "head";
 
-export type HTTPMethods = "delete" | "get" | "head" | "patch" | "post" | "put" | "options";
+export type HTTPMethods = _HttpMethods | Uppercase<_HttpMethods>;
 
 /** 自定义route包装器的配置 */
 export type RoutePackConfig = {

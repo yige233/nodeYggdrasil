@@ -141,8 +141,8 @@ export const UserServices = {
           ip: user.regIP,
           from: {
             type: user.extend.source,
-            id: user.extend.source == "user" ? USERS.get(user.extend.source).id : undefined,
-            nickName: user.extend.source == "user" ? USERS.get(user.extend.source).nickName : undefined,
+            id: user.extend.source === "user" ? USERS.get(user.extend.source).id : undefined,
+            nickName: user.extend.source === "user" ? USERS.get(user.extend.source).nickName : undefined,
           },
         });
         return user.yggdrasilData;
@@ -153,7 +153,7 @@ export const UserServices = {
         throw err;
       }
     });
-    if (result.find((i) => "id" in i)) return new SuccessResponse(result.length == 1 ? result[0] : result, 201);
-    return new SuccessResponse(result.length == 1 ? result[0] : result, 400);
+    if (result.find((i) => "id" in i)) return new SuccessResponse(result.length === 1 ? result[0] : result, 201);
+    return new SuccessResponse(result.length === 1 ? result[0] : result, 400);
   },
 };

@@ -41,8 +41,8 @@ Plugin.getToken(app);
 Plugin.routePacker(app);
 Plugin.handlePacker(app);
 Plugin.allowedContentType(app);
-Plugin.getIP(app, { trustXRealIP: CONFIG.server.trustXRealIP });
-Plugin.rateLim(app, { gap: CONFIG.server.keyReqRL, controller: ACCESSCONTROLLER });
+Plugin.getIP(app, { trustXRealIP: () => CONFIG.server.trustXRealIP });
+Plugin.rateLim(app, { gap: () => CONFIG.server.keyReqRL, controller: ACCESSCONTROLLER });
 
 app.setNotFoundHandler((requset, reply) => {
   if (requset.method.toLowerCase() === "options") {

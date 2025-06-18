@@ -7,7 +7,7 @@ import Profile from "./libs/profile.js";
 import Session from "./libs/session.js";
 import Token from "./libs/token.js";
 import User, { InviteCode } from "./libs/user.js";
-import Utils, { buildDataDir, ThrottleController } from "./libs/utils.js";
+import Utils, { buildDataDir, CacheMgr, ThrottleController } from "./libs/utils.js";
 import WebHook from "./libs/webhook.js";
 
 const [argDataDir = "./data"] = process.argv.slice(2);
@@ -49,7 +49,7 @@ export const PROFILES = profileDataRaw.asArray("id")<Profile>(
   compareWith((profile) => [profile.name, profile.id, profile.linkedMSUserId].filter((i) => i)),
   (profile) => profile.export
 );
-
+export const cacheMgr = new CacheMgr(pathOf("cache"), () => CONFIG.server.cacheTTL);
 /** 私钥数据 */
 export const PRIVATEKEY = await fs
   .readFile(CONFIG.privateKeyPath)
@@ -60,10 +60,12 @@ export const PRIVATEKEY = await fs
 /** 公钥数据 */
 export const PUBLICKEY = crypto.createPublicKey(PRIVATEKEY);
 /** 官方的公钥数据 */
-export const OFFICIALPUBKEY = await Utils.fetch("https://api.minecraftservices.com/publickeys").catch((e) => {
+export const OFFICIALPUBKEY = await Utils.fetch("https://api.minecraftservices.com/publickeys", {
+  cacheMgr,
+  fallback: {},
+}).catch((e) => {
   throw new Error("读取官方公钥失败: " + e.message);
 });
-
 /** 令牌数据Map，仅存在于内存 */
 export const TOKENSMAP: Map<uuid, Token> = new Map();
 /** 加入服务器会话数据Map，仅存在于内存 */
@@ -95,17 +97,17 @@ export const pinoLogger = pino(
         write(msg: string) {
           const { level, time, msg: message, err = null } = JSON.parse(msg);
           const date = new Date(time).toLocaleString();
-          if (level == "LOGIN") {
+          if (level === "LOGIN") {
             fs.appendFile(pathOf("logs/logins.log"), `[${date}] [${level}] ${message}\r\n`);
           }
-          if (level == "WEBHOOK") {
+          if (level === "WEBHOOK") {
             fs.appendFile(pathOf("logs/webhooks.log"), `[${date}] [${level}] ${message}\r\n`);
           }
-          if (level == "ERROR") {
+          if (level === "ERROR") {
             const prettyMsg = [`[${date}] [${level}] ${err?.type}: ${message?.split("\n")[0]}`, `  stack:${err?.stack}`, `  traceId:${err?.trace}`];
             fs.appendFile(pathOf("logs/errors.log"), `${prettyMsg.join("\r\n")}\r\n`);
           }
-          process.stdout.write(`[${date}] [${level}] ${message} ${level == "ERROR" ? err?.trace ?? "" : ""}\r\n`);
+          process.stdout.write(`[${date}] [${level}] ${message} ${level === "ERROR" ? err?.trace ?? "" : ""}\r\n`);
         },
       },
     },

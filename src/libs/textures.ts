@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { PNG } from "pngjs";
 import Utils, { ErrorResponse } from "./utils.js";
 import { model, PublicProfileData, TextureData, TexturesData } from "./interfaces.js";
-import { CONFIG, pathOf, pinoLogger, TEXTURES } from "../global.js";
+import { cacheMgr, CONFIG, pathOf, pinoLogger, TEXTURES } from "../global.js";
 import Profile from "./profile.js";
 
 function readPNGMeta(imageData: Buffer): Promise<{ width: number; height: number }> {
@@ -36,10 +36,10 @@ export default function textureManager(profile: Profile) {
       await removeTexture(textureType);
       profile.textures[textureType.toUpperCase()] = textureData;
     };
-    if (type == "skin") {
+    if (type === "skin") {
       return (url: string, model: "default" | "slim" = "default") => applyToProfile("skin", { url, metadata: { model } });
     }
-    if (type == "cape") {
+    if (type === "cape") {
       return (url: string) => applyToProfile("cape", { url });
     }
   }
@@ -52,10 +52,10 @@ export default function textureManager(profile: Profile) {
     // 目录中不存在该材质
     if (!TEXTURES[hash]) return;
     // 从使用该材质的角色列表中移除当前角色
-    const profileIdIndex = TEXTURES[hash].findIndex((i: string) => i == profile.id);
+    const profileIdIndex = TEXTURES[hash].findIndex((i: string) => i === profile.id);
     TEXTURES[hash].splice(profileIdIndex, 1);
     // 使用该材质的角色列表长度为0，说明该材质已经无人使用了
-    if (TEXTURES[hash].length == 0) {
+    if (TEXTURES[hash].length === 0) {
       delete TEXTURES[hash];
       await fs.unlink(pathOf(`textures/${hash}.png`)).catch((e) => pinoLogger.error(e));
     }
@@ -63,7 +63,7 @@ export default function textureManager(profile: Profile) {
   return {
     deleteTexture(textureType: "skin" | "cape" | "all") {
       // 删除所有材质
-      if (textureType == "all") {
+      if (textureType === "all") {
         return Promise.allSettled(["skin", "cape"].map(removeTexture));
       }
       // 删除指定的材质
@@ -76,7 +76,7 @@ export default function textureManager(profile: Profile) {
       profile.textures.SKIN.metadata = { model };
     },
     async copyFromOfficial(profileName: string) {
-      const { id, errorMessage }: { id: string; errorMessage: string } = await Utils.fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { fallback: {} });
+      const { id, errorMessage }: { id: string; errorMessage: string } = await Utils.fetch(`https://api.mojang.com/users/profiles/minecraft/${profileName}`, { fallback: {}, cacheMgr });
       if (errorMessage) {
         throw new ErrorResponse("BadOperation", `Mojang 服务器返回了如下的错误信息: ${errorMessage}`);
       }
@@ -85,7 +85,7 @@ export default function textureManager(profile: Profile) {
       }
       const {
         properties: [{ value }],
-      }: Partial<PublicProfileData> = await Utils.fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${id}`, { fallback: { properties: [] } });
+      }: Partial<PublicProfileData> = await Utils.fetch(`https://sessionserver.mojang.com/session/minecraft/profile/${id}`, { fallback: { properties: [] }, cacheMgr });
       if (!value) {
         throw new ErrorResponse("BadOperation", "服务器暂时无法连接到 Mojang API 。(2/2)");
       }
@@ -103,13 +103,13 @@ export default function textureManager(profile: Profile) {
       }
     },
     async importFromLittleskin(littleskinTid: string) {
-      const { hash, type: textureType } = await Utils.fetch(`https://littleskin.cn/texture/${littleskinTid}`, { fallback: {} });
+      const { hash, type: textureType } = await Utils.fetch(`https://littleskin.cn/texture/${littleskinTid}`, { fallback: {}, cacheMgr });
       if (!hash) {
         throw new ErrorResponse("BadOperation", `提供的皮肤ID无效: ${littleskinTid} ，或者是服务器暂时无法连接到 LittleSkin 。`);
       }
       const textureURL = `https://littleskin.cn/textures/${hash}`;
       if (textureType != "cape") {
-        return setTexture("skin")(textureURL, textureType == "steve" ? "default" : "slim");
+        return setTexture("skin")(textureURL, textureType === "steve" ? "default" : "slim");
       }
       return setTexture("cape")(textureURL);
     },
@@ -119,7 +119,7 @@ export default function textureManager(profile: Profile) {
         throw new ErrorResponse("BadOperation", "提供的皮肤哈希字符串无效。");
       }
       const textureURL = `http://textures.minecraft.net/texture/${matchedHash}`;
-      const officialResponse = await Utils.fetch(textureURL, { fallback: false });
+      const officialResponse = await Utils.fetch(textureURL, { fallback: false, cacheMgr });
       if (!officialResponse) {
         throw new ErrorResponse("BadOperation", `提供的Mojang皮肤哈希无效: ${matchedHash} ，或者是服务器暂时无法连接到Mojang。`);
       }
@@ -134,7 +134,7 @@ export default function textureManager(profile: Profile) {
       const textureType = isSkin ? "skin" : "cape";
       const textureURL = `${CONFIG.server.root}yggdrasil/textures/${sha256}`;
       if (isSkin) {
-        await setTexture("skin")(textureURL, textureModel == "default" ? "default" : "slim");
+        await setTexture("skin")(textureURL, textureModel === "default" ? "default" : "slim");
       } else {
         await setTexture("cape")(textureURL);
       }

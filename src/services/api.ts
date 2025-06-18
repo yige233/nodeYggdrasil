@@ -55,7 +55,7 @@ export const SettingService = {
   async updateSettings(request: FastifyRequest<{ Body: Partial<Config> }>) {
     request.permCheck(undefined, undefined, true);
     const newConfig: Partial<Config> = Object.assign({}, request.body);
-    Utils.cleanObj(newConfig, { p: "server", c: ["host", "port", "root", "cors"] }, "privateKeyPath", "webhooks", { p: "user", c: ["passwdHashType"] });
+    Utils.cleanObj(newConfig, { p: "server", c: ["host", "port", "root", "cors"] }, "privateKeyPath", "webhooks");
     Utils.merge<Config>(CONFIG, newConfig);
     return new SuccessResponse(CONFIG);
   },

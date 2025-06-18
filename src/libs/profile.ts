@@ -1,7 +1,7 @@
 import { AuthorizatedProfileData, ProfileData, PublicProfileData, TextureData, TexturesData, uploadableTextures, uuid } from "./interfaces.js";
 import Utils, { ErrorResponse } from "./utils.js";
 import textureManager from "./textures.js";
-import { CONFIG, PRIVATEKEY, PROFILES, USERS } from "../global.js";
+import { cacheMgr, CONFIG, PRIVATEKEY, PROFILES, USERS } from "../global.js";
 
 /** 角色 */
 export default class Profile implements ProfileData {
@@ -158,17 +158,17 @@ export default class Profile implements ProfileData {
    * @returns {Promise<Profile>} - 更新后的用户配置文件对象
    */
   setValue<T>(propertyName: string, newValue: T): void {
-    if (!(propertyName in this) || typeof this[propertyName] == "function") {
+    if (!(propertyName in this) || typeof this[propertyName] === "function") {
       throw new ErrorResponse("InternalError", `试图访问无效的属性: ${propertyName} 。`);
     }
     USERS.get(this.owner).checkReadonly();
-    if (propertyName == "name") {
-      if (!CONFIG.user.changeOfflineProfileName && Utils.uuid(this.originalName) == this.id) {
+    if (propertyName === "name") {
+      if (!CONFIG.user.changeOfflineProfileName && Utils.uuid(this.originalName) === this.id) {
         throw new ErrorResponse("ForbiddenOperation", "不允许修改“兼容离线模式的角色”的名称。");
       }
       Profile.checkName(newValue as string);
     }
-    if (propertyName == "linkedMSUserId") {
+    if (propertyName === "linkedMSUserId") {
       if (newValue) {
         if (PROFILES.has(newValue as string)) {
           throw new ErrorResponse("ForbiddenOperation", "该微软账号已经绑定了一个角色。请选择另一个账微软号，或先取消该账号的绑定。");
@@ -200,7 +200,7 @@ export default class Profile implements ProfileData {
     if (signed) {
       textures.signatureRequired = true;
     }
-    if (this.capeVisible == false && textures.textures.CAPE) {
+    if (this.capeVisible === false && textures.textures.CAPE) {
       delete textures.textures.CAPE;
     }
     if (!textures.textures.SKIN && CONFIG.user.defaultSkin) {
@@ -242,7 +242,7 @@ export default class Profile implements ProfileData {
               state: "ACTIVE",
               url: this.textures.SKIN.url,
               textureKey: this.textures.SKIN.url.match(/[0-9a-f]{64}/i)?.[0] ?? undefined,
-              variant: this.textures.SKIN.metadata?.model == "slim" ? "SLIM" : "CLASSIC",
+              variant: this.textures.SKIN.metadata?.model === "slim" ? "SLIM" : "CLASSIC",
             },
           ]
         : [],
@@ -269,6 +269,7 @@ export default class Profile implements ProfileData {
     }
     return Utils.fetch("https://api.minecraftservices.com/minecraft/profile", {
       headers: { authorization },
+      cacheMgr,
     });
   }
   /** 导出角色信息 */

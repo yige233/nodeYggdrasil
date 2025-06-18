@@ -124,10 +124,10 @@ export const SessionserverService = {
         })(),
       ]);
       const profile = PROFILES.get(result.id);
-      if (type == "official") {
+      if (type === "official") {
         WEBHOOK.emit("join.official", { name: result.name, id: result.id, ip });
       }
-      if (type == "yggdrasil") {
+      if (type === "yggdrasil") {
         WEBHOOK.emit("join.yggdrasil", {
           name: result.name,
           id: profile.id,
@@ -145,7 +145,7 @@ export const SessionserverService = {
   },
   /** 获取角色信息 */
   getProfile(request: FastifyRequest<{ Querystring: { unsigned: boolean }; Params: { uuid: uuid } }>): SuccessResponse<PublicProfileData | undefined> {
-    const signed = request.query.unsigned == false ? true : false;
+    const signed = request.query.unsigned === false ? true : false;
     const uuid = request.params.uuid || null;
     if (PROFILES.has(uuid)) {
       return new SuccessResponse(PROFILES.get(uuid).getYggdrasilData(true, signed));
@@ -178,7 +178,7 @@ export const ApiService = {
   ): Promise<SuccessResponse<undefined>> {
     const { uuid, textureType } = request.params;
     const { file, mimetype } = request.body.file;
-    const model = request.body.model?.value == "slim" ? "slim" : "default";
+    const model = request.body.model?.value === "slim" ? "slim" : "default";
     const profile = PROFILES.get(uuid);
     request.rateLim(profile.owner, "uploadTexture");
     if (mimetype != "image/png") {
@@ -188,7 +188,7 @@ export const ApiService = {
       throw new ErrorResponse("ContentTooLarge", `提供的图像太大，应小于5KB。`);
     }
     const image = await checkTexture(await request.body.file.toBuffer(), textureType);
-    profile.textureManager().uploadTexture(image, textureType == "skin" ? model : "cape");
+    profile.textureManager().uploadTexture(image, textureType === "skin" ? model : "cape");
     return new SuccessResponse(undefined, 204);
   },
   /** 删除材质 */

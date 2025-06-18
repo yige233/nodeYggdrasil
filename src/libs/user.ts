@@ -18,7 +18,7 @@ export class InviteCode {
     return code;
   }
   countOf(issuer: string = "system") {
-    return [...this.codes.values()].filter((val) => val.issuer == issuer).length;
+    return [...this.codes.values()].filter((val) => val.issuer === issuer).length;
   }
   clear() {
     this.codes.forEach((_v, k) => {
@@ -72,7 +72,7 @@ export default class User implements UserData {
   tokens: Set<uuid> = new Set();
   constructor(data: UserData) {
     this.id = data.id;
-    this.role = "admin" == data.role ? "admin" : "user";
+    this.role = "admin" === data.role ? "admin" : "user";
     this.salt = SALTS[data.id];
     this.cert = data.cert;
     this.regIP = data.regIP;
@@ -111,7 +111,7 @@ export default class User implements UserData {
       const { available, issuer } = InviteCodes.test(inviteCode);
       if (available) {
         InviteCodes.invalidate(inviteCode);
-        if (issuer == "system") {
+        if (issuer === "system") {
           // 来自于系统临时邀请码
           return (data: UserData) => (data.extend.source = "system");
         }
@@ -149,12 +149,12 @@ export default class User implements UserData {
       remainingInviteCodeCount: CONFIG.user.defaultInviteCodeCount,
     };
     // 第一个用户默认成为admin
-    if (USERS.size == 0) {
+    if (USERS.size === 0) {
       data.role = "admin";
       data.extend.source = "system";
     }
     // 检查邀请码
-    checkInviteCode(USERS.size == 0)(data);
+    checkInviteCode(USERS.size === 0)(data);
     // 添加数据
     USERS.add(data);
     // 获得用户对象实例
@@ -272,25 +272,13 @@ export default class User implements UserData {
    * @param salt 盐值。不提供则为随机生成。
    */
   passwdHash(input: string, salt = Utils.sha256(Utils.uuid())): { salt: string; hash: string; apply: () => void } {
-    function generateHash() {
-      if (CONFIG.user.passwdHashType == "HMACsha256") {
-        return crypto.createHmac("sha256", salt).update(input).digest("hex");
-      }
-      return Utils.sha256(input);
-    }
-    if (!["sha256", "HMACsha256"].includes(CONFIG.user.passwdHashType)) {
-      throw new Error(`未知的 passwdHashType: ${CONFIG.user.passwdHashType}`);
-    }
-    const hash = generateHash();
-    return {
-      hash,
-      salt,
-      apply: () => {
-        this.password = hash;
-        this.salt = salt;
-        SALTS[this.id] = this.salt;
-      },
+    const hash = crypto.createHmac("sha256", salt).update(input).digest("hex");
+    const apply = () => {
+      this.password = hash;
+      this.salt = salt;
+      SALTS[this.id] = this.salt;
     };
+    return { hash, salt, apply };
   }
   /**
    * 检查密码是否有效。
@@ -299,7 +287,7 @@ export default class User implements UserData {
    */
   checkPasswd(input: string): boolean {
     const { hash: resultHash } = this.passwdHash(input, this.salt);
-    return resultHash == this.password;
+    return resultHash === this.password;
   }
   /**
    * 修改用户信息
@@ -346,7 +334,7 @@ export default class User implements UserData {
   }
   /** 使账户成为只读状态 */
   makeReadonly() {
-    if (this.role == "admin") {
+    if (this.role === "admin") {
       throw new ErrorResponse("ForbiddenOperation", "无法将管理员账户锁定。");
     }
     this.checkReadonly();
@@ -354,7 +342,7 @@ export default class User implements UserData {
   }
   /** 删除账户 */
   async deleteAccount() {
-    if (this.role == "admin") {
+    if (this.role === "admin") {
       throw new ErrorResponse("ForbiddenOperation", "无法删除管理员用户。");
     }
     this.checkReadonly();
@@ -384,7 +372,7 @@ export default class User implements UserData {
    */
   ban(duration: number) {
     const now = Date.now();
-    if (this.role == "admin") {
+    if (this.role === "admin") {
       throw new ErrorResponse("ForbiddenOperation", "无法封禁管理员用户。");
     }
     this.banned = now + duration;

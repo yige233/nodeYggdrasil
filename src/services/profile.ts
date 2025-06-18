@@ -38,7 +38,7 @@ export const ProfileService = {
       // 强制使绑定至该角色的所有令牌进入暂时失效状态
       USERS.get(profile.owner).tokens.forEach((accessToken) => {
         const token = TOKENSMAP.get(accessToken);
-        if (token.profile && token.profile == profile.id) {
+        if (token.profile && token.profile === profile.id) {
           token.forcedTvalid = true;
         }
       });
@@ -46,10 +46,10 @@ export const ProfileService = {
     if (["default", "slim"].includes(resModel)) {
       profile.textureManager().setModel(resModel);
     }
-    if (typeof resCapeVisible == "boolean") {
+    if (typeof resCapeVisible === "boolean") {
       profile.setValue("capeVisible", resCapeVisible);
     }
-    if (typeof resUnlinkMSAccount == "boolean" && resUnlinkMSAccount == true) {
+    if (typeof resUnlinkMSAccount === "boolean" && resUnlinkMSAccount === true) {
       profile.setValue("linkedMSUserId", null);
     }
     if (resMSAuthCode) {
@@ -94,13 +94,13 @@ export const ProfileService = {
       if (!operation) {
         throw new ErrorResponse("BadOperation", "需要提供“操作类型”参数。");
       }
-      if (operation == "copyFromOfficial") {
+      if (operation === "copyFromOfficial") {
         return profile.textureManager().copyFromOfficial(request.body.profileName);
       }
-      if (operation == "importFromLittleskin") {
+      if (operation === "importFromLittleskin") {
         return profile.textureManager().importFromLittleskin(request.body.littleskinTid);
       }
-      if (operation == "importFromOfficialURL") {
+      if (operation === "importFromOfficialURL") {
         const { textureType, hash } = request.body.officialSkinInfo;
         return profile.textureManager().importFromOfficialURL(hash, textureType);
       }
@@ -115,7 +115,7 @@ export const ProfileService = {
     const { uuid, textureType } = request.params,
       /** 允许的最大材质大小 */
       maxImgSize = 5 * 1024,
-      model = request.headers["x-skin-model"] == "slim" ? "slim" : "default";
+      model = request.headers["x-skin-model"] === "slim" ? "slim" : "default";
 
     const profile = PROFILES.get(uuid);
     request.rateLim(profile.owner, "uploadTexture");
@@ -123,7 +123,7 @@ export const ProfileService = {
       throw new ErrorResponse("ContentTooLarge", `提供的图片超过允许的最大大小(5KB)。`);
     }
     const image = await checkTexture(request.body, textureType);
-    profile.textureManager().uploadTexture(image, textureType == "skin" ? model : "cape");
+    profile.textureManager().uploadTexture(image, textureType === "skin" ? model : "cape");
     return new SuccessResponse(undefined, 204);
   },
   newProfile(request: FastifyRequest<{ Body: { name: string; offlineCompatible: boolean } }>, reply: FastifyReply) {

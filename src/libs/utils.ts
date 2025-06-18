@@ -73,7 +73,7 @@ export default class Utils {
       return `-----${pos} ${rsaInHeader ? "RSA " : ""}${keyObj.type.toUpperCase()} KEY-----`;
     }
     const keyArr = keyObj
-      .export({ type: keyObj.type == "public" ? "spki" : "pkcs8", format: "pem" })
+      .export({ type: keyObj.type === "public" ? "spki" : "pkcs8", format: "pem" })
       .toString()
       .split("\n");
     keyArr[0] = formatStr("BEGIN");
@@ -95,7 +95,7 @@ export default class Utils {
    */
   static cleanObj(target: object, ...blacklist: ObjBlackList[]) {
     for (let i of blacklist) {
-      if (typeof i == "string") {
+      if (typeof i === "string") {
         delete target[i];
         continue;
       }
@@ -106,10 +106,10 @@ export default class Utils {
     for (const key in newObj) {
       if (!newObj.hasOwnProperty(key)) continue;
       if (source[key] instanceof Array && newObj[key] instanceof Array) {
-        (source[key] as any[]) = (newObj[key] as any[]).filter((i) => typeof i == "string");
+        (source[key] as any[]) = (newObj[key] as any[]).filter((i) => typeof i === "string");
         continue;
       }
-      if (typeof source[key] == "object") {
+      if (typeof source[key] === "object") {
         Utils.merge<T[Extract<keyof T, string>]>(source[key], newObj[key]);
         continue;
       }
@@ -168,7 +168,7 @@ export default class Utils {
             },
             delete(input: string) {
               const index = initializedData.findIndex(compareFunc(input));
-              if (index == -1) return false;
+              if (index === -1) return false;
               initializedData.splice(index, 1);
               proxied.data.splice(index, 1);
               return true;
@@ -203,14 +203,22 @@ export default class Utils {
       json?: {};
       /** 如果请求失败，则返回该对象 */
       fallback?: T;
+      /** 缓存在本地的http响应体数据 */
+      cacheMgr?: CacheMgr;
       /** 超时时间，单位为ms，默认为5s */
       timeout?: number | string;
+      method?: HTTPMethods;
     } = {}
   ): Promise<any | T> {
     function formdata(data: { [key: string]: string }) {
       const form = new URLSearchParams();
       Object.entries(data).forEach(([k, v]) => form.append(k, v));
       return form;
+    }
+    const cacheHandler = options.cacheMgr?.createCacheHandler(url, options.method);
+    if (cacheHandler) {
+      const fileData = await cacheHandler.read();
+      if (fileData !== null) return fileData;
     }
     const contentType = options.json ? "application/json;charset=utf-8" : options.formdata ? "application/x-www-form-urlencoded" : undefined;
     const body = options.json ? JSON.stringify(options.json) : options.formdata ? formdata(options.formdata) : options.body;
@@ -228,10 +236,18 @@ export default class Utils {
         headers: headers,
       });
       if (response.ok) {
-        return response.headers.get("content-type")?.includes("application/json") ? response.json() : response.blob();
+        const isJSON = response.headers.get("content-type")?.includes("application/json");
+        const clonedRes = response.clone();
+        if (cacheHandler) {
+          await cacheHandler.write(Buffer.from(await clonedRes.bytes()), isJSON ? "json" : "buffer").catch((e) => console.log(`[Cache] ${e.message}`));
+        }
+        return isJSON ? response.json() : response.blob();
       }
-      throw { fetchError: response.status };
+      throw new Error(`请求失败: ${response.status} ${response.statusText}`);
     } catch (e) {
+      if (cacheHandler) {
+        fs.unlink(cacheHandler.filePath).catch(() => undefined);
+      }
       if (typeof options.fallback != "undefined") {
         return options.fallback;
       }
@@ -275,7 +291,7 @@ export class Time {
    * @returns
    */
   static parseSingle(timeString: string | number): number {
-    if (typeof timeString == "number") return timeString;
+    if (typeof timeString === "number") return timeString;
     const match = /^(-?(?:\d+)?\.?\d+) *(|ms|s|m|h|d)?$/i.exec(timeString);
     if (!match) {
       return 0;
@@ -327,7 +343,7 @@ export class Plugin {
   static successResponse(instance: FastifyInstance): void {
     instance.decorateReply("replySuccess", function <T>(data: T, code: number = 200): void {
       this.status(code);
-      if (code == 204) {
+      if (code === 204) {
         this.removeHeader("content-type");
         return this.send();
       }
@@ -335,20 +351,22 @@ export class Plugin {
     });
   }
   /** 从请求中获取ip */
-  static getIP(instance: FastifyInstance, options: { trustXRealIP: boolean }): void {
+  static getIP(instance: FastifyInstance, options: { trustXRealIP: boolean | (() => boolean) }): void {
     instance.decorateRequest("getIP", function (): string {
       const xRealIP = this.headers["x-real-ip"] ?? undefined;
+      const trustXRealIP = typeof options.trustXRealIP === "function" ? options.trustXRealIP() : options.trustXRealIP;
       // 存在 x-real-ip 头，信任该请求头提供的ip地址
-      if (xRealIP && options.trustXRealIP) {
-        return typeof xRealIP == "string" ? xRealIP : xRealIP[0];
+      if (xRealIP && trustXRealIP) {
+        return typeof xRealIP === "string" ? xRealIP : xRealIP[0];
       }
       return this.ip;
     });
   }
   /** 限制请求速度 */
-  static rateLim(instance: FastifyInstance, options: { gap: string | number; controller: ThrottleController } = { gap: 100, controller: new ThrottleController() }): void {
+  static rateLim(instance: FastifyInstance, options: { gap: string | number | (() => string | number); controller: ThrottleController } = { gap: 100, controller: new ThrottleController() }): void {
     instance.decorateRequest("rateLim", function (key: string, operation: string, ms?: number | string): true {
-      if (!options.controller.test(`${key}.${operation}`, Time.parse(ms || options.gap))) {
+      const gap: string | number = typeof options.gap === "function" ? options.gap() : options.gap;
+      if (!options.controller.test(`${key}.${operation}`, Time.parse(ms || gap))) {
         throw new ErrorResponse("TooManyRequests", "你的操作速度过快，请稍后再试。");
       }
       return true;
@@ -436,8 +454,8 @@ export class Plugin {
           url,
           method,
           attachValidation: true,
-          handler: this.packHandle(method.toLocaleLowerCase() == "options" ? handerForOption : handerForOther),
-          schema: method.toLocaleLowerCase() == "options" ? schemaForOption : schemaForOther,
+          handler: this.packHandle(method.toLocaleLowerCase() === "options" ? handerForOption : handerForOther),
+          schema: method.toLocaleLowerCase() === "options" ? schemaForOption : schemaForOther,
         };
       };
       /** 通常使用的 http 方法 */
@@ -470,7 +488,7 @@ export class Plugin {
           if (result instanceof SuccessResponse) {
             return result.response(reply);
           }
-          if (result == false || result == undefined || result == null) {
+          if (result === false || result === undefined || result === null) {
             return;
           }
           instance.log.error(new Error(`意外的响应体类型: ${Object.getPrototypeOf(result).constructor.name}, 源于 ${handler}`));
@@ -518,6 +536,82 @@ export class SuccessResponse<T> {
       reply.type(this.type);
     }
     reply.replySuccess(this.data, this.code);
+  }
+}
+/** 缓存管理器 */
+export class CacheMgr {
+  cacheDirectory: string;
+  getCacheTTL: () => string | number;
+  constructor(cacheDirectory: string, getCacheTTL: string | number | (() => string | number)) {
+    this.cacheDirectory = cacheDirectory;
+    if (typeof getCacheTTL === "function") {
+      this.getCacheTTL = getCacheTTL;
+    } else {
+      this.getCacheTTL = () => getCacheTTL ?? "1h";
+    }
+  }
+  createCacheHandler(url: string, method: HTTPMethods = "get") {
+    const hash = Utils.sha256(url + method);
+    const filePath = path.join(this.cacheDirectory, hash);
+    const defaultTTL = this.getCacheTTL();
+    return {
+      async read(ttl: string | number = defaultTTL): Promise<Buffer | string | object> {
+        try {
+          const data = await fs.readFile(filePath);
+          const {
+            body,
+            header: { url, method, cachedAt = 0, type },
+          }: {
+            header: { url: string; method: HTTPMethods; cachedAt: number; type: "buffer" | "text" | "json" };
+            body: Buffer;
+          } = CacheFile.resolve(data);
+          if (cachedAt + Time.parse(ttl) < Date.now() || Utils.sha256(url + method) !== hash) {
+            return null;
+          }
+          if (type === "json") return JSON.parse(body.toString("utf-8"));
+          if (type === "text") return body.toString("utf-8");
+          return body;
+        } catch (e) {
+          fs.unlink(filePath).catch(() => undefined);
+          throw new Error(`读取缓存文件失败: ${e.message}`);
+        }
+      },
+      async write(buffer: Buffer, type: "buffer" | "text" | "json" = "buffer") {
+        try {
+          const packer = CacheFile.pack({ url, method, cachedAt: Date.now(), type });
+          await fs.writeFile(filePath, packer(buffer));
+        } catch (e) {
+          throw new Error(`写入缓存文件失败: ${e.message}`);
+        }
+      },
+      filePath,
+    };
+  }
+}
+/** 构建与解析缓存文件 */
+class CacheFile {
+  static resolve(buffer: Buffer) {
+    const headerLength = buffer.readInt32BE();
+    if (headerLength === 0 || headerLength > buffer.length || Number.isNaN(headerLength)) throw new Error("无效的头部长度");
+    const header = buffer.subarray(4, headerLength + 4);
+    try {
+      const headerObj = JSON.parse(header.toString("utf-8"));
+      return { header: headerObj, body: buffer.subarray(headerLength + 4) };
+    } catch (e) {
+      throw new Error(`头部解析失败: ${e.message}`);
+    }
+  }
+  static pack(header: object = {}) {
+    try {
+      const headerString = Buffer.from(JSON.stringify(header));
+      return (body: Buffer) => {
+        const length = Buffer.alloc(4);
+        length.writeInt32BE(headerString.length);
+        return Buffer.concat([length, headerString, body]);
+      };
+    } catch (e) {
+      throw new Error(`头部序列化失败: ${e.message}`);
+    }
   }
 }
 
@@ -636,6 +730,7 @@ export async function buildDataDir(dataDir = "./data") {
       proxyCount: 0,
       trustXRealIP: false,
       keyReqRL: "300ms",
+      cacheTTL: "1h",
     },
     user: {
       inviteCodes: [],
@@ -646,7 +741,6 @@ export async function buildDataDir(dataDir = "./data") {
       userInviteCode: true,
       offlineProfile: true,
       defaultSkinURL: "http://textures.minecraft.net/texture/31f477eb1a7beee631c2ca64d06f8f68fa93a3386d04452ab27f43acdf1b60cb",
-      passwdHashType: "HMACsha256",
       keyOpRL: "1h",
       maxProfileCount: 5,
       tokenTTL: "336h",
@@ -676,6 +770,7 @@ export async function buildDataDir(dataDir = "./data") {
   log(`正在创建配置文件，位置：${pathOf()}`);
   await fs.mkdir(pathOf("textures"), { recursive: true });
   await fs.mkdir(pathOf("logs"), { recursive: true });
+  await fs.mkdir(pathOf("cache"), { recursive: true });
   try {
     await fs.writeFile(pathOf("config.json"), configStr, { flag: "wx" });
   } catch {

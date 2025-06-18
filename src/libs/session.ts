@@ -97,7 +97,7 @@ export default class Session {
     // 记录尝试通过本验证服务器加入游戏的正版玩家
     if (!OFFICIALPLAYERLIST.logged.includes(profile.id)) OFFICIALPLAYERLIST.logged.push(profile.id);
     // 偏好黑名单时，玩家在黑名单内
-    if (CONFIG.user.officialPlayerWhitelist == false && OFFICIALPLAYERLIST.blacklist.includes(profile.id)) throw false;
+    if (CONFIG.user.officialPlayerWhitelist === false && OFFICIALPLAYERLIST.blacklist.includes(profile.id)) throw false;
     // 偏好白名单时，玩家不在白名单内
     if (CONFIG.user.officialPlayerWhitelist && !OFFICIALPLAYERLIST.whitelist.includes(profile.id)) throw false;
     return [profile, "official"];

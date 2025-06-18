@@ -95,7 +95,7 @@ export default class WebHook {
       }
     });
     // 没有可用签名时，取消发送webhook
-    if (signatureArray.length == 0) {
+    if (signatureArray.length === 0) {
       throw new Error(`请求被取消，因为没能为该请求创建任何有效的签名`);
     }
     // 将这些签名拼接为字符串（按空格分割），并设置签名请求头中。
