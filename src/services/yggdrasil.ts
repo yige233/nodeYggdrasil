@@ -156,21 +156,25 @@ export const SessionserverService = {
 /** /api/ 开头的API */
 export const ApiService = {
   /** 查询多个角色信息 */
-  getProfiles(request: FastifyRequest<{ Body: string[] }>): SuccessResponse<PublicProfileData[]> {
-    // 最大查询结果数量：100
-    const maxQuery = 100;
-    const result: PublicProfileData[] = [...new Set(request.body instanceof Array ? request.body : [])]
-      .map((i) => i.replace(/-/g, ""))
-      .slice(0, maxQuery)
-      .map((i) => {
-        const query = i.match(/^[0-9a-f]{32}$/i)?.[0].toLowerCase() ?? i;
-        if (PROFILES.has(query)) {
-          const { id, name } = PROFILES.get(query).getYggdrasilData();
-          return { id, name };
+  queryName(batch: boolean = false) {
+    return batch
+      ? function (request: FastifyRequest<{ Body: string[] }>): SuccessResponse<PublicProfileData[]> {
+          const input = [...new Set(request.body instanceof Array ? request.body : [])];
+          return new SuccessResponse(Profile.queryBy("uuid", true)(...input));
         }
-      })
-      .filter((i) => i);
-    return new SuccessResponse(result);
+      : function (request: FastifyRequest<{ Params: { uuid: uuid } }>) {
+          return new SuccessResponse(Profile.queryBy("uuid", false)(request.params.uuid));
+        };
+  },
+  queryUUID(batch: boolean = false) {
+    return batch
+      ? function (request: FastifyRequest<{ Body: string[] }>): SuccessResponse<PublicProfileData[]> {
+          const input = [...new Set(request.body instanceof Array ? request.body : [])];
+          return new SuccessResponse(Profile.queryBy("profileName", true)(...input));
+        }
+      : function (request: FastifyRequest<{ Params: { profileName: string } }>) {
+          return new SuccessResponse(Profile.queryBy("profileName", false)(request.params.profileName));
+        };
   },
   /** 上传材质 */
   async uploadTexture(

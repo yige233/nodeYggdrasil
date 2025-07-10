@@ -3,6 +3,11 @@ import Utils, { ErrorResponse } from "./utils.js";
 import textureManager from "./textures.js";
 import { cacheMgr, CONFIG, PRIVATEKEY, PROFILES, USERS } from "../global.js";
 
+/** 最长角色名称长度 */
+const MAX_NAME_LENGTH = 30;
+/** 合法角色名称正则 */
+const NAME_REGEX = /^[_A-Za-z0-9\u4e00-\u9fa5]+$/;
+
 /** 角色 */
 export default class Profile implements ProfileData {
   readonly id: uuid;
@@ -78,10 +83,10 @@ export default class Profile implements ProfileData {
     if (!name) {
       throw new ErrorResponse("BadOperation", "请提供一个角色名。");
     }
-    if (name.length > 30) {
+    if (name.length > MAX_NAME_LENGTH) {
       throw new ErrorResponse("BadOperation", `提供的角色名称太长。`);
     }
-    if (!/^[_A-Za-z0-9\u4e00-\u9fa5]+$/.test(name)) {
+    if (!NAME_REGEX.test(name)) {
       throw new ErrorResponse("BadOperation", "角色名称非法：包含有非数字、字母、汉字的字符。");
     }
     if (PROFILES.has(name)) {
@@ -272,6 +277,45 @@ export default class Profile implements ProfileData {
       cacheMgr,
     });
   }
+  static queryBy(qs: "uuid" | "profileName", batch: true): (...queryRaw: string[]) => { id: string; name: string }[];
+  static queryBy(qs: "uuid" | "profileName", batch?: false): (queryRaw: string) => { id: string; name: string };
+  static queryBy(qs: "uuid" | "profileName", batch: boolean = false) {
+    const MAX_QUERY = 100;
+    const preHandler = (i: string) => {
+      if (qs === "uuid") {
+        return i
+          .replace(/-/g, "")
+          .match(/^[0-9a-f]{32}$/i)?.[0]
+          .toLowerCase();
+      }
+      if (qs === "profileName") {
+        return NAME_REGEX.test(i) ? i : undefined;
+      }
+      return undefined;
+    };
+    const mainHandler = (...queryRaw: string[]): { id: string; name: string }[] => {
+      return queryRaw
+        .slice(0, MAX_QUERY)
+        .map(preHandler)
+        .map((i) => {
+          if (PROFILES.has(i)) {
+            const { id, name } = PROFILES.get(i).getYggdrasilData();
+            return { id, name };
+          }
+        })
+        .filter((i) => i);
+    };
+    return batch
+      ? (...queryRaw: string[]) => mainHandler(...queryRaw)
+      : (queryRaw: string): { id: string; name: string } => {
+          const result = mainHandler(queryRaw);
+          if (result[0]) {
+            return result[0];
+          }
+          throw new ErrorResponse("NotFound", "查询的角色不存在。");
+        };
+  }
+
   /** 导出角色信息 */
   get export(): ProfileData {
     return {

@@ -139,7 +139,7 @@ const api: RoutePackConfig = {
     {
       url: "/profiles/minecraft",
       post: {
-        handler: ApiService.getProfiles,
+        handler: ApiService.queryUUID(true),
         schema: {
           summary: "批量查询角色名称所对应的角色。可以使用角色uuid和角色名称。",
           tags: ["yggdrasil"],
@@ -153,114 +153,6 @@ const api: RoutePackConfig = {
 const minecraftservices: RoutePackConfig = {
   url: "/minecraftservices",
   routes: [
-    {
-      url: "/player/certificates",
-      post: {
-        handler: mcService.getCertificates,
-        schema: {
-          summary: "获取用户密钥对，用于加密聊天消息",
-          tags: ["yggdrasil"],
-          headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
-          response: {
-            200: Packer.object()({
-              keyPair: Packer.object("密钥对")({
-                privateKey: Packer.string("私钥"),
-                publicKey: Packer.string("公钥"),
-              }),
-              expiresAt: Packer.string("密钥过期时间"),
-              refreshedAfter: Packer.string("密钥刷新时间"),
-              publicKeySignature: Packer.string("对公钥的签名，1.19早期版本使用"),
-              publicKeySignatureV2: Packer.string("对公钥的签名，1.19后期版本及更新版本使用"),
-            }),
-          },
-        },
-      },
-      before: function (instance) {
-        instance.addHook("onRequest", async function (request) {
-          if (request.headers["content-type"]) {
-            delete request.headers["content-type"];
-          }
-        });
-      },
-    },
-    {
-      url: "/publickeys",
-      get: {
-        handler: mcService.getPublickeys,
-        schema: {
-          summary: "获取服务器公钥",
-          description: "包含服务器自己的公钥和Mojang的公钥，这样可以兼容正版玩家进服",
-          tags: ["yggdrasil"],
-          response: {
-            200: Packer.object()({
-              profilePropertyKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
-              playerCertificateKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
-            }),
-          },
-        },
-      },
-    },
-    {
-      url: "/minecraft/profile/lookup/bulk/byname",
-      post: {
-        handler: ApiService.getProfiles,
-        schema: {
-          summary: "批量查询角色名称所对应的角色。可以使用角色uuid和角色名称。",
-          tags: ["yggdrasil"],
-          body: schemas.RequestProfilesQuery,
-          response: { 204: schemas.Response204.bad, 200: Packer.array("不包含角色属性")(schemas.PublicProfileData) },
-        },
-      },
-    },
-    {
-      url: "/player/attributes",
-      get: {
-        handler: mcService.getPlayerAttributes,
-        schema: {
-          summary: "如果mc客户端采取添加jvm参数的方式实现完美兼容正版，则此api会被mc调用，因此需要返回有意义的信息",
-          tags: ["yggdrasil"],
-          response: {
-            200: Packer.object("玩家属性")(mcService.getPlayerAttributes().data),
-          },
-        },
-      },
-    },
-    {
-      url: "/minecraft/profile",
-      get: {
-        handler: mcService.getProfile,
-        schema: {
-          summary: "获取玩家信息（该API会被Geyser调用）",
-          tags: ["yggdrasil"],
-          headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
-          response: {
-            200: Packer.object()({
-              id: Packer.string("角色id"),
-              name: Packer.string("角色名称"),
-              profileActions: Packer.object()({}),
-              skins: Packer.array("皮肤列表")(
-                Packer.object()({
-                  id: Packer.string("皮肤id"),
-                  state: Packer.string("皮肤状态", "ACTIVE"),
-                  url: Packer.string("皮肤url"),
-                  textureKey: Packer.string("皮肤材质id"),
-                  variant: Packer.string("皮肤类型", "CLASSIC", "SLIM"),
-                  alias: Packer.string("皮肤别名，可能不存在"),
-                })
-              ),
-              capes: Packer.array("披风列表")(
-                Packer.object()({
-                  id: Packer.string("披风id"),
-                  state: Packer.string("披风状态", "ACTIVE", "INACTIVE"),
-                  url: Packer.string("披风url"),
-                  alias: Packer.string("披风别名，可能不存在"),
-                })
-              ),
-            }),
-          },
-        },
-      },
-    },
     {
       url: "/authentication/login_with_xbox",
       post: {
@@ -303,6 +195,136 @@ const minecraftservices: RoutePackConfig = {
               token_type: Packer.string("登录Token类型，固定为 Bearer", "Bearer"),
               access_token: Packer.string("登录Token"),
               username: Packer.string("用户id（不是MC角色id）"),
+            }),
+          },
+        },
+      },
+    },
+    {
+      url: "/minecraft/profile",
+      get: {
+        handler: mcService.getProfile,
+        schema: {
+          summary: "获取玩家信息（该API会被Geyser调用）",
+          tags: ["yggdrasil"],
+          headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
+          response: {
+            200: Packer.object()({
+              id: Packer.string("角色id"),
+              name: Packer.string("角色名称"),
+              profileActions: Packer.object()({}),
+              skins: Packer.array("皮肤列表")(
+                Packer.object()({
+                  id: Packer.string("皮肤id"),
+                  state: Packer.string("皮肤状态", "ACTIVE"),
+                  url: Packer.string("皮肤url"),
+                  textureKey: Packer.string("皮肤材质id"),
+                  variant: Packer.string("皮肤类型", "CLASSIC", "SLIM"),
+                  alias: Packer.string("皮肤别名，可能不存在"),
+                })
+              ),
+              capes: Packer.array("披风列表")(
+                Packer.object()({
+                  id: Packer.string("披风id"),
+                  state: Packer.string("披风状态", "ACTIVE", "INACTIVE"),
+                  url: Packer.string("披风url"),
+                  alias: Packer.string("披风别名，可能不存在"),
+                })
+              ),
+            }),
+          },
+        },
+      },
+    },
+    {
+      url: "/minecraft/profile/lookup/:uuid",
+      get: {
+        handler: ApiService.queryName(false),
+        schema: {
+          summary: "查询单个uuid对应的玩家名称。",
+          tags: ["yggdrasil"],
+          response: { 204: schemas.Response204.bad, 200: schemas.PublicProfileData },
+        },
+      },
+    },
+    {
+      url: "/minecraft/profile/lookup/bulk/byname",
+      post: {
+        handler: ApiService.queryUUID(true),
+        schema: {
+          summary: "批量查询玩家名称对应的uuid。",
+          tags: ["yggdrasil"],
+          body: schemas.RequestProfilesQuery,
+          response: { 200: Packer.array("不包含角色属性")(schemas.PublicProfileData) },
+        },
+      },
+    },
+    {
+      url: "/minecraft/profile/lookup/name/:profileName",
+      get: {
+        handler: ApiService.queryUUID(false),
+        schema: {
+          summary: "查询单个玩家名称对应的UUID",
+          tags: ["yggdrasil"],
+          response: { 204: schemas.Response204.bad, 200: schemas.PublicProfileData },
+        },
+      },
+    },
+    {
+      url: "/player/attributes",
+      get: {
+        handler: mcService.getPlayerAttributes,
+        schema: {
+          summary: "如果mc客户端采取添加jvm参数的方式实现完美兼容正版，则此api会被mc调用，因此需要返回有意义的信息",
+          tags: ["yggdrasil"],
+          response: {
+            200: Packer.object("玩家属性")(mcService.getPlayerAttributes().data),
+          },
+        },
+      },
+    },
+    {
+      url: "/player/certificates",
+      post: {
+        handler: mcService.getCertificates,
+        schema: {
+          summary: "获取用户密钥对，用于加密聊天消息",
+          tags: ["yggdrasil"],
+          headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
+          response: {
+            200: Packer.object()({
+              keyPair: Packer.object("密钥对")({
+                privateKey: Packer.string("私钥"),
+                publicKey: Packer.string("公钥"),
+              }),
+              expiresAt: Packer.string("密钥过期时间"),
+              refreshedAfter: Packer.string("密钥刷新时间"),
+              publicKeySignature: Packer.string("对公钥的签名，1.19早期版本使用"),
+              publicKeySignatureV2: Packer.string("对公钥的签名，1.19后期版本及更新版本使用"),
+            }),
+          },
+        },
+      },
+      before: function (instance) {
+        instance.addHook("onRequest", async function (request) {
+          if (request.headers["content-type"]) {
+            delete request.headers["content-type"];
+          }
+        });
+      },
+    },
+    {
+      url: "/publickeys",
+      get: {
+        handler: mcService.getPublickeys,
+        schema: {
+          summary: "获取服务器公钥",
+          description: "包含服务器自己的公钥和Mojang的公钥，这样可以兼容正版玩家进服",
+          tags: ["yggdrasil"],
+          response: {
+            200: Packer.object()({
+              profilePropertyKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
+              playerCertificateKeys: Packer.array("公钥组")(Packer.object("公钥")({ publicKey: Packer.string("公钥") })),
             }),
           },
         },
