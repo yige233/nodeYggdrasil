@@ -282,6 +282,7 @@ export default class Profile implements ProfileData {
   static queryBy(qs: "uuid" | "profileName", batch: boolean = false) {
     const MAX_QUERY = 100;
     const preHandler = (i: string) => {
+      if (typeof i !== "string" || !i) return undefined;
       if (qs === "uuid") {
         return i
           .replace(/-/g, "")

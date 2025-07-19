@@ -217,8 +217,8 @@ export default class Utils {
     }
     const cacheHandler = options.cacheMgr?.createCacheHandler(url, options.method);
     if (cacheHandler) {
-      const fileData = await cacheHandler.read();
-      if (fileData !== null) return fileData;
+      const fileData = await cacheHandler.read().catch(() => undefined);
+      if (fileData) return fileData;
     }
     const contentType = options.json ? "application/json;charset=utf-8" : options.formdata ? "application/x-www-form-urlencoded" : undefined;
     const body = options.json ? JSON.stringify(options.json) : options.formdata ? formdata(options.formdata) : options.body;
@@ -239,7 +239,7 @@ export default class Utils {
         const isJSON = response.headers.get("content-type")?.includes("application/json");
         const clonedRes = response.clone();
         if (cacheHandler) {
-          await cacheHandler.write(Buffer.from(await clonedRes.bytes()), isJSON ? "json" : "buffer").catch((e) => console.log(`[Cache] ${e.message}`));
+          await cacheHandler.write(Buffer.from(await clonedRes.arrayBuffer()), isJSON ? "json" : "buffer").catch((e) => console.log(`[Cache] ${e.message}`));
         }
         return isJSON ? response.json() : response.blob();
       }
@@ -566,7 +566,7 @@ export class CacheMgr {
             body: Buffer;
           } = CacheFile.resolve(data);
           if (cachedAt + Time.parse(ttl) < Date.now() || Utils.sha256(url + method) !== hash) {
-            return null;
+            return undefined;
           }
           if (type === "json") return JSON.parse(body.toString("utf-8"));
           if (type === "text") return body.toString("utf-8");
