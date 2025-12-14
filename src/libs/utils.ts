@@ -194,7 +194,7 @@ export default class Utils {
    * @param options 除 RequestInit 外，还包括：fallback: 如果请求失败，则返回该对象; timeout: 超时时间，单位为ms，默认为5s; json: 需要序列化的json body;
    * @returns
    */
-  static async fetch<T>(
+  static async fetch(
     url: string,
     options: RequestInit & {
       /** 需要序列化的form data */
@@ -202,28 +202,23 @@ export default class Utils {
       /** 需要序列化的json body */
       json?: {};
       /** 如果请求失败，则返回该对象 */
-      fallback?: T;
+      fallback?: any;
       /** 缓存在本地的http响应体数据 */
       cacheMgr?: CacheMgr;
       /** 超时时间，单位为ms，默认为5s */
       timeout?: number | string;
       method?: HTTPMethods;
     } = {}
-  ): Promise<any | T> {
-    function formdata(data: { [key: string]: string }) {
-      const form = new URLSearchParams();
-      Object.entries(data).forEach(([k, v]) => form.append(k, v));
-      return form;
-    }
+  ): Promise<any> {
     const cacheHandler = options.cacheMgr?.createCacheHandler(url, options.method);
     if (cacheHandler) {
       const fileData = await cacheHandler.read().catch(() => undefined);
       if (fileData) return fileData;
     }
     const contentType = options.json ? "application/json;charset=utf-8" : options.formdata ? "application/x-www-form-urlencoded" : undefined;
-    const body = options.json ? JSON.stringify(options.json) : options.formdata ? formdata(options.formdata) : options.body;
+    const body = options.json ? JSON.stringify(options.json) : options.formdata ? new URLSearchParams(options.formdata) : options.body;
     const headers = new Headers({
-      accpet: "application/json",
+      accept: "application/json",
       "content-type": contentType,
       "user-agent": Utils.userAgent,
       ...options.headers,

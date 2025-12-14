@@ -25,8 +25,8 @@ const app: FastifyInstance = Fastify({
   trustProxy: CONFIG.server.proxyCount || false,
   disableRequestLogging: true,
   exposeHeadRoutes: true,
-  ignoreTrailingSlash: true,
   loggerInstance: pinoLogger,
+  routerOptions: { ignoreTrailingSlash: true },
 });
 app.setValidatorCompiler(({ schema }) => ajv.compile(schema));
 
@@ -55,7 +55,7 @@ app.setNotFoundHandler((requset, reply) => {
   }
   reply.replyError("NotFound", `不存在的路径: ${requset.url}`);
 });
-app.setErrorHandler(async (error, _requset, reply) => void reply.replyError("BadOperation", `检查你的请求: ${error.message}`));
+app.setErrorHandler<Error>((error, _requset, reply) => void reply.replyError("BadOperation", `检查你的请求: ${error?.message}`));
 
 if (CONFIG.privExtend.enableSwaggerUI) {
   await app.register(swagger, {

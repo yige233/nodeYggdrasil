@@ -1,9 +1,9 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { ErrorResponse, SuccessResponse } from "../libs/utils.js";
+import { ErrorResponse, SuccessResponse, Time } from "../libs/utils.js";
 import Profile from "../libs/profile.js";
 import { model, TextureData, uuid } from "../libs/interfaces.js";
 import { checkTexture } from "../libs/textures.js";
-import { TOKENSMAP, USERS, PROFILES, WEBHOOK, CONFIG } from "../global.js";
+import { TOKENSMAP, PROFILES, WEBHOOK, CONFIG } from "../global.js";
 
 interface importTextureBody {
   /** 正版用户id */
@@ -20,42 +20,51 @@ interface importTextureBody {
 }
 
 export const ProfileService = {
-  async updateInfo(request: FastifyRequest<{ Body: { name?: string; model?: "default" | "slim"; capeVisible?: boolean; unlinkMSAccount?: true; MSAuthCode?: string }; Params: { uuid: uuid } }>) {
-    const { name, model, capeVisible, unlinkMSAccount = false, MSAuthCode } = request.body;
+  async updateInfo(request: FastifyRequest<{ Body: { name?: string; model?: "default" | "slim"; capeVisible?: boolean; unlinkMSAccount?: true }; Params: { uuid: uuid } }>) {
+    const { name, model, capeVisible, unlinkMSAccount = false } = request.body;
     const uuid = request.params.uuid;
     const { user, profile } = request.permCheck(undefined, uuid);
-    if (MSAuthCode) {
-      request.rateLim(user.id, "linkToMSAccount", CONFIG.user.keyOpRL);
-    }
-    const tasks = [name, model, capeVisible, unlinkMSAccount, Profile.getMSAccountId(MSAuthCode)];
-    const [resName, resModel, resCapeVisible, resUnlinkMSAccount, resMSAuthCode] = await Promise.all(tasks).catch((e) => {
-      if (e instanceof ErrorResponse) throw e;
-      return [];
-    });
     // 设置新的角色名称
-    if (resName) {
-      profile.setValue("name", resName);
+    if (name) {
+      profile.setValue("name", name);
       // 强制使绑定至该角色的所有令牌进入暂时失效状态
-      USERS.get(profile.owner).tokens.forEach((accessToken) => {
+      user.tokens.forEach((accessToken) => {
         const token = TOKENSMAP.get(accessToken);
         if (token.profile && token.profile === profile.id) {
           token.forcedTvalid = true;
         }
       });
     }
-    if (["default", "slim"].includes(resModel)) {
-      profile.textureManager().setModel(resModel);
+    if (["default", "slim"].includes(model)) {
+      profile.textureManager().setModel(model);
     }
-    if (typeof resCapeVisible === "boolean") {
-      profile.setValue("capeVisible", resCapeVisible);
+    if (typeof capeVisible === "boolean") {
+      profile.setValue("capeVisible", capeVisible);
     }
-    if (typeof resUnlinkMSAccount === "boolean" && resUnlinkMSAccount === true) {
+    if (unlinkMSAccount === true) {
       profile.setValue("linkedMSUserId", null);
     }
-    if (resMSAuthCode) {
-      profile.setValue("linkedMSUserId", resMSAuthCode);
-    }
     return new SuccessResponse(profile.getYggdrasilData(true));
+  },
+  async linkMSAccount(request: FastifyRequest<{ Params: { uuid: uuid }; Querystring: { step: "issue" | "verify"; code?: string } }>) {
+    const { uuid } = request.params;
+    const { step, code } = request.query;
+    const { user, profile } = request.permCheck(undefined, uuid);
+    if (step === "issue") {
+      request.rateLim(user.id, "issueMSAuthDeviceCode", CONFIG.user.keyOpRL);
+      const result = await Profile.createAuthFlow();
+      return new SuccessResponse(result, 201);
+    }
+    if (step === "verify") {
+      request.rateLim(user.id, "verifyMSAuthDeviceCode", Time.parse("5s"));
+      const { retryAfter, accessToken } = await Profile.verifyAuthFlow(code);
+      if (retryAfter) return new SuccessResponse({ retryAfter }, 202);
+      if (accessToken) {
+        const msUserId = await Profile.getMSAccountId(accessToken);
+        profile.setValue("linkedMSUserId", msUserId);
+        return new SuccessResponse(profile.getYggdrasilData(true));
+      }
+    }
   },
   async delete(request: FastifyRequest<{ Params: { uuid: uuid } }>) {
     const uuid = request.params.uuid;

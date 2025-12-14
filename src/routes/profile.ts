@@ -106,6 +106,31 @@ const textures: RoutePackConfig = {
   },
   routes: [textureType],
 };
+const msAccount: RoutePackConfig = {
+  url: "/link-ms-account",
+  post: {
+    handler: ProfileService.linkMSAccount,
+    schema: {
+      summary: "将一个微软账户绑定至一个角色。",
+      description: "需要提供有效的令牌。采用设备代码流的方式。授权成功后，会返回角色的详细信息。",
+      tags: ["server"],
+      headers: Packer.object()({ authorization: schemas.shared.authorization }, "authorization"),
+      params: Packer.object()({ uuid: schemas.shared.profileUuid }, "uuid"),
+      querystring: Packer.object()({ step: Packer.string("操作步骤", "issue", "verify"), code: Packer.string("微软授权码。仅在step为verify时需要。") }, "step"),
+      response: {
+        200: schemas.PublicProfileData,
+        201: Packer.object("当step为issue时返回。")({
+          userCode: Packer.string("用户需要提供给微软的验证码。"),
+          verificationURI: Packer.string("用户需要提供验证码的网址。"),
+          interval: Packer.number("授权结果的轮询间隔，单位为秒。"),
+        }),
+        202: Packer.object("当step为verify，且仍在获取授权结果时返回。")({
+          retryAfter: Packer.number("用户需要等待 retryAfter 秒后重新查询授权结果。"),
+        }),
+      },
+    },
+  },
+};
 /** 单个角色相关 */
 const profile: RoutePackConfig = {
   url: "/:uuid",
@@ -135,7 +160,6 @@ const profile: RoutePackConfig = {
         model: Packer.string("角色使用的模型。", "default", "slim"),
         capeVisible: Packer.boolean("披风的可见性，即是否隐藏披风。披风的材质不会被删除。"),
         unlinkMSAccount: Packer.boolean("是否解除该角色与微软账户的绑定。"),
-        MSAuthCode: Packer.string("想要绑定至该角色的微软账号的授权码。提供该项会导致API对该用户触发关键操作冷却。如果同时提供了本项与 unlinkMSAccount ，会先进行解绑，然后绑定新的账户。"),
       }),
       response: { 200: schemas.PublicProfileData },
     },
@@ -153,7 +177,7 @@ const profile: RoutePackConfig = {
     },
   },
   /** 材质相关 */
-  routes: [textures],
+  routes: [textures, msAccount],
 };
 /** 角色这一集合相关 */
 const profiles: RoutePackConfig = {

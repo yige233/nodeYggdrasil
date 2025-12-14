@@ -1,5 +1,5 @@
 import { AuthorizatedProfileData, ProfileData, PublicProfileData, TextureData, TexturesData, uploadableTextures, uuid } from "./interfaces.js";
-import Utils, { ErrorResponse } from "./utils.js";
+import Utils, { ErrorResponse, Time } from "./utils.js";
 import textureManager from "./textures.js";
 import { cacheMgr, CONFIG, PRIVATEKEY, PROFILES, USERS } from "../global.js";
 
@@ -7,6 +7,8 @@ import { cacheMgr, CONFIG, PRIVATEKEY, PROFILES, USERS } from "../global.js";
 const MAX_NAME_LENGTH = 30;
 /** 合法角色名称正则 */
 const NAME_REGEX = /^[_A-Za-z0-9\u4e00-\u9fa5]+$/;
+
+const MsDeviceAuthFlow = new Map<string, { deviceCode: string; interval: number; expiresAt: number }>();
 
 /** 角色 */
 export default class Profile implements ProfileData {
@@ -95,27 +97,13 @@ export default class Profile implements ProfileData {
     return true;
   }
   /**
-   * 获取微软账户登录后提供给的用户id。该流程实际上相当于登录一遍Minecraft，不过在这里登录token反而成为了副产品。
-   * @param authCode 从 https://login.live.com/oauth20_authorize.srf?client_id=00000000402b5328&response_type=code&scope=service%3A%3Auser.auth.xboxlive.com%3A%3AMBI_SSL&redirect_uri=https%3A%2F%2Flogin.live.com%2Foauth20_desktop.srf 处登录微软账号后，获得的授权码。实际上是一个回调url，该url中包含了我们需要的授权码。
+   * 获取微软账户登录后提供给的用户id。需要结合createAuthFlow()使用。该流程实际上相当于登录一遍Minecraft，不过在这里登录token反而成为了副产品。
+   * @param accessToken 由 createAuthFlow() 获得的授权码
    * @returns
    */
-  static async getMSAccountId(authCode: string) {
-    if (!authCode) {
+  static async getMSAccountId(accessToken: string) {
+    if (!accessToken) {
       return undefined;
-    }
-    const { access_token: authToken } = await Utils.fetch("https://login.live.com/oauth20_token.srf", {
-      method: "POST",
-      fallback: {},
-      formdata: {
-        code: authCode,
-        client_id: "00000000402b5328",
-        grant_type: "authorization_code",
-        redirect_uri: "https://login.live.com/oauth20_desktop.srf",
-        scope: "service::user.auth.xboxlive.com::MBI_SSL",
-      },
-    });
-    if (!authToken) {
-      throw new ErrorResponse("BadOperation", "提供的 authCode 无效。(1/4)");
     }
     const {
       Token: xboxToken,
@@ -126,13 +114,13 @@ export default class Profile implements ProfileData {
       method: "POST",
       fallback: {},
       json: {
-        Properties: { AuthMethod: "RPS", SiteName: "user.auth.xboxlive.com", RpsTicket: authToken },
+        Properties: { AuthMethod: "RPS", SiteName: "user.auth.xboxlive.com", RpsTicket: accessToken },
         RelyingParty: "http://auth.xboxlive.com",
         TokenType: "JWT",
       },
     });
     if (!xboxToken || !uhs) {
-      throw new ErrorResponse("BadOperation", "请求 xbox token 失败。(2/4)");
+      throw new ErrorResponse("BadOperation", "请求 xbox token 失败。(1/3)");
     }
     const { Token: xstsToken } = await Utils.fetch("https://xsts.auth.xboxlive.com/xsts/authorize", {
       method: "POST",
@@ -144,7 +132,7 @@ export default class Profile implements ProfileData {
       },
     });
     if (!xstsToken) {
-      throw new ErrorResponse("BadOperation", "请求 xbox XSTS token 失败。(3/4)");
+      throw new ErrorResponse("BadOperation", "请求 xbox XSTS token 失败。(2/3)");
     }
     const { username } = await Utils.fetch("https://api.minecraftservices.com/authentication/login_with_xbox", {
       method: "POST",
@@ -152,9 +140,72 @@ export default class Profile implements ProfileData {
       json: { identityToken: `XBL3.0 x=${uhs};${xstsToken}` },
     });
     if (!username) {
-      throw new ErrorResponse("BadOperation", "请求 MS Account ID 失败。(4/4)");
+      throw new ErrorResponse("BadOperation", "请求 MS Account ID 失败。(3/3)");
     }
     return username;
+  }
+  static async createAuthFlow(): Promise<{ userCode: string; verificationURI: string; interval: number }> {
+    MsDeviceAuthFlow.forEach((flow, id) => {
+      if (Date.now() > flow.expiresAt) {
+        MsDeviceAuthFlow.delete(id);
+      }
+    });
+    const { user_code, device_code, verification_uri, interval, expires_in }: { user_code: string; device_code: string; verification_uri: string; interval: number; expires_in: number } =
+      await Utils.fetch("https://login.live.com/oauth20_connect.srf", {
+        method: "POST",
+        formdata: {
+          client_id: "00000000402b5328",
+          response_type: "device_code",
+          scope: "service::user.auth.xboxlive.com::MBI_SSL",
+        },
+      });
+    if (!device_code) {
+      throw new ErrorResponse("BadOperation", "服务器向微软请求授权码失败。用户没有做错任何事。");
+    }
+    const expiresAt = Date.now() + Time.parse(`${expires_in}s`);
+    MsDeviceAuthFlow.set(user_code, { expiresAt, interval, deviceCode: device_code });
+    return {
+      userCode: user_code,
+      verificationURI: verification_uri,
+      interval,
+    };
+  }
+  static async verifyAuthFlow(userCode: string) {
+    if (!MsDeviceAuthFlow.has(userCode)) {
+      throw new ErrorResponse("BadOperation", userCode ? `指定的授权码不存在: ${userCode} 。` : "请提供授权码。");
+    }
+    const { deviceCode, interval, expiresAt } = MsDeviceAuthFlow.get(userCode);
+    if (Date.now() > expiresAt) {
+      throw new ErrorResponse("BadOperation", "授权码已过期。");
+    }
+    const { access_token, error }: { access_token: string; error: "authorization_pending" | "authorization_declined" | "bad_verification_code" | "expired_token" } = await Utils.fetch(
+      "https://login.live.com/oauth20_token.srf",
+      {
+        method: "POST",
+        fallback: {},
+        formdata: {
+          client_id: "00000000402b5328",
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: deviceCode,
+        },
+      }
+    );
+    if (error === "authorization_pending") {
+      return { retryAfter: interval };
+    }
+    MsDeviceAuthFlow.delete(userCode);
+    if (error === "authorization_declined") {
+      throw new ErrorResponse("BadOperation", "用户拒绝授权。");
+    }
+    if (error === "bad_verification_code") {
+      throw new ErrorResponse("InternalError", "服务端提供了错误的 device_code 参数。用户没有做错任何事。");
+    }
+    if (error === "expired_token") {
+      throw new ErrorResponse("BadOperation", "授权码已过期。");
+    }
+    if (access_token) {
+      return { accessToken: access_token };
+    }
   }
   /**
    * 设置新的角色信息，同时检查该角色绑定的用户是否是只读用户；如果是修改name，则额外检查用户名称的合法性
