@@ -3,7 +3,7 @@ import { ErrorResponse, SuccessResponse, Time } from "../libs/utils.js";
 import Profile from "../libs/profile.js";
 import { model, TextureData, uuid } from "../libs/interfaces.js";
 import { checkTexture } from "../libs/textures.js";
-import { TOKENSMAP, PROFILES, WEBHOOK, CONFIG } from "../global.js";
+import { TOKENSMAP, PROFILES, WEBHOOK, CONFIG, Settings } from "../global.js";
 
 interface importTextureBody {
   /** 正版用户id */
@@ -51,7 +51,7 @@ export const ProfileService = {
     const { step, code } = request.query;
     const { user, profile } = request.permCheck(undefined, uuid);
     if (step === "issue") {
-      request.rateLim(user.id, "issueMSAuthDeviceCode", CONFIG.user.keyOpRL);
+      request.rateLim(user.id, "issueMSAuthDeviceCode", Settings.dev ? CONFIG.server.keyReqRL : CONFIG.user.keyOpRL);
       const result = await Profile.createAuthFlow();
       return new SuccessResponse(result, 201);
     }

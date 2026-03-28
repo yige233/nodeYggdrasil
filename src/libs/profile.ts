@@ -188,8 +188,8 @@ export default class Profile implements ProfileData {
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           device_code: deviceCode,
         },
-      }
-    );
+      },
+    ).catch((e) => ({ error: e.message }));
     if (error === "authorization_pending") {
       return { retryAfter: interval };
     }
@@ -206,6 +206,7 @@ export default class Profile implements ProfileData {
     if (access_token) {
       return { accessToken: access_token };
     }
+    throw new ErrorResponse("InternalError", `未知的错误:${error}`);
   }
   /**
    * 设置新的角色信息，同时检查该角色绑定的用户是否是只读用户；如果是修改name，则额外检查用户名称的合法性

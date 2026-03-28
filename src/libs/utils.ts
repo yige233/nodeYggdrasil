@@ -140,7 +140,7 @@ export default class Utils {
           compareFunc = (_searchStr: string) =>
             (_element: T | RawType): boolean =>
               true,
-          toRawType = (data: T): RawType | T => data
+          toRawType = (data: T): RawType | T => data,
         ) {
           const writeFile = debounce(() => fs.writeFile(filePath, JSON.stringify(initializedData.map(toRawType), null, 2)));
           const initialFunc = (data: RawType) => {
@@ -208,7 +208,7 @@ export default class Utils {
       /** 超时时间，单位为ms，默认为5s */
       timeout?: number | string;
       method?: HTTPMethods;
-    } = {}
+    } = {},
   ): Promise<any> {
     const cacheHandler = options.cacheMgr?.createCacheHandler(url, options.method);
     if (cacheHandler) {
@@ -230,13 +230,19 @@ export default class Utils {
         body: body,
         headers: headers,
       });
-      if (response.ok) {
-        const isJSON = response.headers.get("content-type")?.includes("application/json");
+      const isJSON = response.headers.get("content-type")?.includes("application/json");
+      if (cacheHandler) {
         const clonedRes = response.clone();
-        if (cacheHandler) {
-          await cacheHandler.write(Buffer.from(await clonedRes.arrayBuffer()), isJSON ? "json" : "buffer").catch((e) => console.log(`[Cache] ${e.message}`));
-        }
-        return isJSON ? response.json() : response.blob();
+        await cacheHandler.write(Buffer.from(await clonedRes.arrayBuffer()), isJSON ? "json" : "buffer").catch((e) => console.log(`[Cache] ${e.message}`));
+      }
+      if (isJSON) {
+        return response.json();
+      }
+      if (response.headers.get("content-type").includes("text")) {
+        return response.text();
+      }
+      if (response.ok) {
+        return response.blob();
       }
       throw new Error(`请求失败: ${response.status} ${response.statusText}`);
     } catch (e) {
@@ -393,7 +399,7 @@ export class Plugin {
       USERS: { data: User[]; has: (userId: uuid) => boolean; get: (userId: uuid) => User | undefined };
       PROFILES: { data: Profile[]; has: (profileId: uuid) => boolean; get: (profileId: uuid) => Profile | undefined };
       TOKENSMAP: Map<string, Token>;
-    }
+    },
   ): void {
     const { USERS, PROFILES, TOKENSMAP } = Maps;
     instance.decorateRequest("permCheck", function (userId?: uuid, profileId?: uuid, checkAdmin?: boolean): { token: uuid; user: User; profile?: Profile } {
